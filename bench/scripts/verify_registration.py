@@ -41,7 +41,13 @@ Items checked:
      owner that day before any §2 sealed attempt) supersedes the
      post-Addendum A state in turn; the post-A1-A3 body hash is the
      current value, verified by strict equality, with both earlier
-     states reported SUPERSEDED.
+     states reported SUPERSEDED. The §3 A4-A5 append of
+     2026-11-07 (the §2 probe-presentation and sealed-driver/
+     scoring amendments, owner-ratified and CC-concurred that day
+     before any §2 sealed attempt) supersedes the post-A1-A3 state
+     in turn; the post-A4-A5 body hash is the current value,
+     verified by strict equality, with all three earlier states
+     reported SUPERSEDED.
   7. B2 confirmation registration (pre-registration-b2-2026-11-05
      §10): (a) sha256 of bench/generation-v3/SEALED-MANIFEST.json
      at HEAD; (b) every per-file sha256 in that manifest (176 case
@@ -108,10 +114,25 @@ REGISTRATION_BODY_SHA256_POST_ADDENDUM_A = \
 # dismissal veto across all strata), ratified by the owner that
 # day adopting the settlement memo's recommendations
 # (tl-sealed-protocol-settlement-2026-11-05.md) and appended to
-# section 3 before any section-2 sealed attempt. This is the
-# current authoritative body state.
-REGISTRATION_BODY_SHA256_CURRENT = \
+# section 3 before any section-2 sealed attempt. Superseded by
+# the section-3 A4-A5 append below; retained as the expected
+# value of the third SUPERSEDED row in check 6.
+REGISTRATION_BODY_SHA256_POST_A1_A3 = \
     "a98d93788e875a5525f8cf2d5475fabc6ec4598e9a4eb97a2daff6d2b513cd9f"
+# Body hash after the section-3 A4-A5 append of 2026-11-07 —
+# the two section-2 protocol amendments (A4: the probe
+# presentation table for the sealed attempt; A5: the sealed
+# driver and scoring, with the corrected sealed_split merits
+# rule — the draft's path-split definition was caught in the
+# pre-append check against SEALED.md and never took effect),
+# ratified by the owner 2026-11-07 (the corrected A5 text
+# ratified that day, ~14:07 ET) and concurred in by CC
+# (concurrence recorded on the owner's statement — the
+# Addendum A execution form), and appended to section 3 before
+# any section-2 sealed attempt. This is the current
+# authoritative body state.
+REGISTRATION_BODY_SHA256_CURRENT = \
+    "2913708ac304de01a68b2ec1d649c544c73abeeb4845a33d64aa79e4eaa470f4"
 
 # Item 7 (B2 confirmation registration, pre-registration-b2-
 # 2026-11-05 §10): generation-v3 seal + B2 policy freeze + the
@@ -276,11 +297,13 @@ def main():
               REGISTRATION_FOOTER_HASH, footer_value.strip())
         # The post-fill body state (Baseline v2 section 6) is
         # superseded by the section-3 Addendum A append of
-        # 2026-11-05 — reported SUPERSEDED only when the body
-        # actually recomputes to the current post-append state,
-        # which the next check verifies by strict equality; any
-        # other body state fails both rows (same pattern as the
-        # A5 set hash in check 3).
+        # 2026-11-05, that state by the A1-A3 append of the same
+        # day, and that state by the A4-A5 append of 2026-11-07
+        # — each reported SUPERSEDED only when the body actually
+        # recomputes to the current post-append state, which the
+        # last check verifies by strict equality; any other body
+        # state fails every row (same pattern as the A5 set hash
+        # in check 3).
         rows.append(("pre-registration body hash (post-fill state, "
                      "Baseline v2 §6)",
                      REGISTRATION_BODY_SHA256_SUPERSEDED,
@@ -297,7 +320,15 @@ def main():
                      "SUPERSEDED"
                      if body_hash == REGISTRATION_BODY_SHA256_CURRENT
                      else "FAIL"))
-        check("pre-registration body hash (post-A1-A3 append, "
+        rows.append(("pre-registration body hash (post-A1-A3 "
+                     "append, §3)",
+                     REGISTRATION_BODY_SHA256_POST_A1_A3,
+                     "superseded by the §3 A4-A5 append "
+                     "(2026-11-07)",
+                     "SUPERSEDED"
+                     if body_hash == REGISTRATION_BODY_SHA256_CURRENT
+                     else "FAIL"))
+        check("pre-registration body hash (post-A4-A5 append, "
               "§3)", REGISTRATION_BODY_SHA256_CURRENT, body_hash)
     except (OSError, ValueError, IndexError) as exc:
         rows.append(("pre-registration integrity", "readable document",
@@ -398,7 +429,7 @@ def main():
         return 1
     print("RESULT: PASS (all registered hashes verify; superseded: "
           "A5 set hash, pre-Addendum-A body hash, post-Addendum-A "
-          "body hash)")
+          "body hash, post-A1-A3 body hash)")
     print("B2 registration (item 7): PASS — generation-v3 seal, "
           "B2 freeze, and body-hash chain verify; drafting and "
           "post-signature body states SUPERSEDED")

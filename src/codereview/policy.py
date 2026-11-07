@@ -209,9 +209,15 @@ POLICY_SCHEMA = "codereview.policy/1"
 KNOWN_LENSES = ("correctness", "operations")
 
 # Mirrors core.GATE_PROFILES (the gate profiles, step 6; B2
-# added "corroborated"), kept here under the same import-free
-# discipline; a test pins the two together.
-KNOWN_GATE_PROFILES = ("strict", "balanced", "corroborated")
+# added "corroborated"; W1 added "guide" — the OPC plan v2 §4
+# decision layer over the strict pipeline), kept here under
+# the same import-free discipline; a test pins the two
+# together. Naming "guide" in an explicitly loaded policy is
+# valid; a DISCOVERED policy still cannot select it —
+# apply_discovered_restrictions forces any non-"strict"
+# discovered profile back to "strict" (P3-01).
+KNOWN_GATE_PROFILES = ("strict", "balanced", "corroborated",
+                       "guide")
 
 _ENFORCE_LEVELS = ("block", "advisory")
 

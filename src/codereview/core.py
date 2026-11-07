@@ -3113,7 +3113,18 @@ def upsert_precedent(entries, finding, blob, round_label,
 # a fallback. policy.KNOWN_GATE_PROFILES mirrors this tuple
 # (the policy module stays import-free of the engine; a test
 # pins the two together).
-GATE_PROFILES = ("strict", "balanced", "corroborated")
+#
+# "guide" (OPC plan v2 §4, W1) is a profile of a different
+# kind: not an admission rule but a DECISION LAYER over the
+# strict pipeline. Naming it changes nothing upstream — the
+# profile pass treats it exactly like "strict" (metadata
+# stamps, no demotions), the prompt is the base prompt — and
+# after the gate is final, codereview.guide sorts the
+# standing findings into red/yellow/grey buckets and records
+# a shipping verdict (READY TO SHIP / SHIP WITH KNOWN ISSUES
+# / NOT SAFE TO SHIP / COULD NOT CHECK) alongside the strict
+# gate, which stays on the record untouched.
+GATE_PROFILES = ("strict", "balanced", "corroborated", "guide")
 
 
 def _source_lenses_of(finding):
@@ -4501,6 +4512,20 @@ def run_review(patch, providers, context="", test_results=None,
     was NOT confirmed by Baseline v2 (attempt 1 failed on
     clean-BLOCKED), and B2 is opt-in and unconfirmed — dev
     evidence only.
+
+    "guide" (OPC plan v2 §4, W1) may also be selected: the
+    round runs exactly as "strict" — base prompt, no
+    demotions — and once the gate is final the report gains
+    a `guide` section (codereview.guide): every standing
+    finding bucketed red/yellow/grey with its reason, and a
+    shipping verdict (READY TO SHIP / SHIP WITH KNOWN
+    ISSUES / NOT SAFE TO SHIP / COULD NOT CHECK) with its
+    own exit code. The strict `gate` field is left exactly
+    as computed, so a guide verdict is never a strict pass
+    in disguise. A repo-discovered policy cannot select
+    "guide" (P3-01 forces discovered profiles to "strict");
+    only the operator's explicit argument or an explicitly
+    named policy file can.
 
     File context (acceptance D1): `file_context` optionally
     maps a changed file's path to its post-change contents
@@ -6221,6 +6246,45 @@ def run_review(patch, providers, context="", test_results=None,
         })
         report["unverified_majors"] = [
             f for f in merged if "unverified_major" in f]
+    if effective_profile == "guide":
+        # W1 (OPC plan v2 §4): the guide decision layer. The
+        # round above ran the strict pipeline untouched — the
+        # report's `gate` is the strict gate, computed by the
+        # same rules as any strict run. What follows only
+        # ADDS: a bucket per standing finding (stamped on the
+        # finding itself, like evidence_class) and a `guide`
+        # section carrying the shipping verdict + exit code.
+        # A block that did not come from findings (a blocking
+        # policy violation, required evidence failing or
+        # missing) is not the findings' to clear: guide marks
+        # it and never ships over it.
+        from . import guide as _guide
+        _nf_block = False
+        if gate == "blocked":
+            if policy_outcome is not None and any(
+                    v.get("enforce") == "block"
+                    for v in policy_outcome.get("violations")
+                    or []):
+                _nf_block = True
+            if tiering_evidence == "missing":
+                _nf_block = True
+            if evidence is not None:
+                from . import evidence as _evidence_g
+                if _evidence_g.gate_effect(
+                        evidence.get("items")
+                        or [])[0] == "blocked":
+                    _nf_block = True
+        _guide_section = _guide.guide_section(
+            merged, gate,
+            blocking_sevs=(("blocker",) if allow_major
+                           else BLOCKING_DEFAULT),
+            non_finding_block=_nf_block)
+        for f in merged:
+            _b = _guide_section["buckets"].get(f.get("id"))
+            if _b:
+                f["guide_bucket"] = _b["bucket"]
+                f["guide_bucket_reason"] = _b["reason"]
+        report["guide"] = _guide_section
     if file_context:
         # D1: the record states exactly which files' post-change
         # contents were attached to the reviewer prompts.
@@ -8579,6 +8643,61 @@ def render_markdown(report):
         lines.append("")
     else:
         lines += ["## Findings", "None.", ""]
+    guide_sec = report.get("guide")
+    if guide_sec:
+        # W1/W2 (OPC plan v2 §4/§5): the guide reading of
+        # this run — verdict first, then the findings in
+        # bucket order with their plain-English explanations.
+        # Red and yellow carry the full five parts; grey is
+        # collapsed to titles by default (the full text is
+        # one `codereview explain` away). The strict gate
+        # line at the top of this report is unchanged.
+        from . import guide as _guide_r
+        lines.append("## Guide — in plain English")
+        lines.append(
+            f"**Guide verdict: {guide_sec.get('verdict')}** "
+            f"(strict gate: "
+            f"{str(guide_sec.get('strict_gate') or '').upper()}; "
+            f"{guide_sec.get('red_count', 0)} red, "
+            f"{guide_sec.get('yellow_count', 0)} yellow, "
+            f"{guide_sec.get('grey_count', 0)} grey)")
+        lines.append("")
+        _buckets = guide_sec.get("buckets") or {}
+        for bucket in ("red", "yellow"):
+            group = [f for f in findings
+                     if (_buckets.get(f.get("id") or {})
+                         .get("bucket")) == bucket]
+            if not group:
+                continue
+            lines.append(f"### {_guide_r.BUCKET_LABELS[bucket]}"
+                         f" ({len(group)})")
+            for f in group:
+                ex = _guide_r.explain_finding(f, bucket=bucket)
+                lines.append(f"- **{f.get('title')}**")
+                lines.append(f"  - What is wrong: {ex['what']}")
+                lines.append(
+                    f"  - Why it matters to you: {ex['why']}")
+                lines.append(f"  - How urgent: {ex['urgency']}")
+                lines.append("  - How to fix:")
+                for i, step in enumerate(ex["fix_steps"], 1):
+                    lines.append(f"    {i}. {step}")
+                lines.append(f"  - {ex['agent_instruction']}")
+            lines.append("")
+        grey = [f for f in findings
+                if (_buckets.get(f.get("id") or {})
+                    .get("bucket")) == "grey"]
+        if grey:
+            lines.append(f"### {_guide_r.BUCKET_LABELS['grey']}"
+                         f" ({len(grey)}) — collapsed; run "
+                         f"`codereview explain` for the full "
+                         f"text")
+            for f in grey:
+                loc = f.get("file") or ""
+                if f.get("line"):
+                    loc += f":{f['line']}"
+                lines.append(f"- [{f['severity']}] "
+                             f"{f.get('title')} ({loc})")
+            lines.append("")
     unverified = report.get("unverified_majors") or []
     if unverified:
         lines.append(

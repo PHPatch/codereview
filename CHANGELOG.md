@@ -1,5 +1,51 @@
 # Changelog
 
+## Unreleased — W1 `guide` profile + W2 plain English (branch `guide-w1-w2`, 2026-11-07)
+
+- **`guide` gate profile (OPC plan v2 §4, W1):**
+  `--gate-profile guide` (or `[gate] profile = "guide"` in
+  an explicitly loaded policy; a repo-discovered policy
+  still cannot select it — P3-01). The round runs the
+  strict pipeline unchanged — base prompt, no demotions —
+  and once the gate is final, every finding standing at
+  the gate is bucketed: **red** (fix before you ship:
+  secrets and security holes, money/payments mistakes,
+  data loss, main-path crashes, a failing test command —
+  these still block), **yellow** (fix soon: real bugs and
+  reliability risks at blocking severity outside the red
+  classes — they do not block), **grey** (nice to improve:
+  below blocking severity). The record keeps the strict
+  `gate` exactly as computed and gains a `guide` section
+  with the verdict — `READY TO SHIP`,
+  `SHIP WITH KNOWN ISSUES (n yellow)`,
+  `NOT SAFE TO SHIP (n red)`, `COULD NOT CHECK` — the
+  counts, and a bucket + reason per finding (also stamped
+  on each finding as `guide_bucket`). `SHIP WITH KNOWN
+  ISSUES` is its own recorded state: never labelled PASS,
+  never a strict pass. A gate blocked by something other
+  than findings (blocking policy violation, required
+  evidence) is never shipped over. Exit codes stay 0/1/2:
+  red → 1, could-not-check → 2, otherwise 0. `strict`
+  behaviour is unchanged (regression-pinned, including a
+  strict-vs-guide same-findings equivalence test).
+- **Plain-English explanations (OPC plan v2 §5, W2):**
+  new `codereview explain <record>` prints every finding
+  in a record as five parts — what is wrong, why it
+  matters to you, how urgent, how to fix (numbered steps),
+  and a ready-to-paste "Tell your agent: …" instruction —
+  generated from the record's own finding data by the
+  same bucketing rule the gate ran (no second source of
+  truth; the urgency wording is a function of the bucket
+  alone, so a red finding cannot be softened — pinned by
+  tests). Guide runs render the same explanations in the
+  markdown report, red and yellow in full, grey collapsed
+  to titles. New `codereview words [term]` prints the
+  short plain-English glossary.
+- Not yet measured: `guide`'s own benchmark (W7) runs
+  before any number about it is published; the claim
+  lint's profile-attribution check (W0) already guards
+  cross-profile number reuse.
+
 ## Unreleased — W3 installers + guided setup (branch `installers-w3`, 2026-11-07)
 
 - **Installers (OPC plan §6):** new `installers/` folder —

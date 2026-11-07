@@ -43,6 +43,7 @@ from . import claims as claims_mod
 from . import core
 from . import crash as crash_mod
 from . import disputes as disputes_mod
+from . import guide as guide_mod
 from . import hardening
 from . import herdrhost
 from . import hooks as hooks_mod
@@ -1767,6 +1768,77 @@ def _locate_main(argv):
     return 0
 
 
+def _explain_main(argv):
+    """codereview explain — print a saved record's findings in
+    plain English (OPC plan v2 §5, W2): for every finding,
+    what is wrong, why it matters to you, how urgent it is,
+    how to fix it, and a ready-to-paste instruction for the
+    reader's coding agent. The explanations are generated
+    from the record's own finding data (codereview.guide);
+    when the record carries a `guide` section its recorded
+    buckets and verdict are used, otherwise the buckets are
+    recomputed from the findings. Exit 0 = printed; exit 2 =
+    the record could not be read."""
+    ap = argparse.ArgumentParser(
+        prog="codereview explain",
+        description="Print a saved review record's findings "
+                    "in plain English.")
+    ap.add_argument("path",
+                    help="record directory or record JSON file")
+    ap.add_argument("--repo", default=".",
+                    help="repository the record belongs to")
+    args = ap.parse_args(argv)
+    try:
+        record, _record_dir, jpath = _load_record_arg(
+            args.path, args.repo)
+    except Exception as exc:  # noqa: BLE001
+        print(f"codereview: could not read the record: {exc}",
+              file=sys.stderr)
+        return 2
+    findings = record.get("findings") or []
+    guide_sec = record.get("guide") or {}
+    print(f"codereview explain: {jpath}")
+    if guide_sec.get("verdict"):
+        print(f"Guide verdict: {guide_sec['verdict']} "
+              f"(strict gate: "
+              f"{str(record.get('gate') or '').upper()})")
+    else:
+        print(f"Gate: "
+              f"{str(record.get('gate') or 'unknown').upper()}")
+    print()
+    if not findings:
+        print("No findings in this record.")
+        return 0
+    sys.stdout.write(guide_mod.render_explanations(
+        findings, buckets=guide_sec.get("buckets")))
+    return 0
+
+
+def _words_main(argv):
+    """codereview words — the plain-English glossary (OPC
+    plan v2 §5, W2): the few terms that cannot be avoided,
+    defined in plain words. No argument prints every term;
+    one argument prints just that term. Exit 2 = unknown
+    term."""
+    ap = argparse.ArgumentParser(
+        prog="codereview words",
+        description="Plain-English definitions of the few "
+                    "CodeReview terms that cannot be avoided.")
+    ap.add_argument("term", nargs="?", default=None,
+                    help="one glossary term (omit for the "
+                         "whole list)")
+    args = ap.parse_args(argv)
+    text = guide_mod.glossary_text(args.term)
+    if text is None:
+        print(f"codereview: no glossary entry for "
+              f"{args.term!r}; known terms: "
+              f"{', '.join(sorted(guide_mod.GLOSSARY))}",
+              file=sys.stderr)
+        return 2
+    sys.stdout.write(text)
+    return 0
+
+
 def _sarif_main(argv):
     """codereview sarif — export a saved record's open findings
     as a SARIF 2.1.0 log (Epic D, ticket D1), for GitHub code
@@ -2162,6 +2234,10 @@ def main(argv=None, providers_override=None, seat_meta_override=None,
     if argv and argv[0] == "telemetry":
         from . import feedback
         return feedback.telemetry_main(argv[1:])
+    if argv and argv[0] == "explain":
+        return _explain_main(argv[1:])
+    if argv and argv[0] == "words":
+        return _words_main(argv[1:])
     ap = argparse.ArgumentParser(
         prog="codereview",
         description="Multi-model code review loop with a "
@@ -2175,6 +2251,11 @@ def main(argv=None, providers_override=None, seat_meta_override=None,
                "project policy; "
                "record-verify — verify a stored run record "
                "offline; "
+               "explain — print a record's findings in plain "
+               "English (what is wrong, why it matters, how "
+               "urgent, how to fix); "
+               "words — a short plain-English glossary of the "
+               "few terms that cannot be avoided; "
                "disputes — list and record rulings on disputed "
                "findings; "
                "bench — run the benchmark corpus and reports; "
@@ -2243,7 +2324,8 @@ def main(argv=None, providers_override=None, seat_meta_override=None,
                     help="degraded or truncated reviews are INCONCLUSIVE "
                          "instead of passing")
     ap.add_argument("--gate-profile",
-                    choices=("strict", "balanced", "corroborated"),
+                    choices=("strict", "balanced", "corroborated",
+                             "guide"),
                     default=None,
                     help="gate profile: 'strict' (the default — "
                          "every blocking-severity finding blocks), "
@@ -2264,7 +2346,17 @@ def main(argv=None, providers_override=None, seat_meta_override=None,
                          "able to serve the correctness lens; "
                          "single-family panels keep 'strict'. B2 "
                          "is opt-in and unconfirmed — dev "
-                         "evidence only). Overrides the policy "
+                         "evidence only), or 'guide' (OPC plan "
+                         "§4: the strict pipeline unchanged, "
+                         "then the findings are sorted into "
+                         "fix-before-you-ship (red), fix-soon "
+                         "(yellow) and nice-to-improve (grey) "
+                         "buckets and the verdict is stated as "
+                         "READY TO SHIP / SHIP WITH KNOWN "
+                         "ISSUES / NOT SAFE TO SHIP / COULD NOT "
+                         "CHECK, with the strict gate kept on "
+                         "the record; only red findings block "
+                         "the exit code). Overrides the policy "
                          "file's [gate] profile; the policy file "
                          "overrides the default. The default "
                          "stays 'strict'")
@@ -3002,6 +3094,20 @@ def main(argv=None, providers_override=None, seat_meta_override=None,
               f"— see `codereview disputes`")
     print(f"  report: {mpath}")
     print(f"  data:   {jpath}")
+    guide_sec = report.get("guide")
+    if guide_sec:
+        # W1 (OPC plan v2 §4): a guide run's exit code is the
+        # GUIDE verdict's — red present -> 1, could not check
+        # -> 2, otherwise 0 (yellow count is in the record).
+        # The strict gate stays printed above and on the
+        # record; the guide verdict is its own state, never a
+        # relabelled PASS.
+        print(f"codereview: guide verdict = "
+              f"{guide_sec.get('verdict')} (strict gate: "
+              f"{report['gate'].upper()}; "
+              f"{guide_sec.get('yellow_count', 0)} yellow, "
+              f"{guide_sec.get('grey_count', 0)} grey)")
+        return guide_sec.get("exit_code", 2)
     return {"pass": 0, "blocked": 1, "inconclusive": 2}.get(
         report["gate"], 2)
 

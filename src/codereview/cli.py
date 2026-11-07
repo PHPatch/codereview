@@ -901,12 +901,19 @@ def _intake_main(argv, solvers_override=None):
 
 
 def _pr_main(argv, providers_override=None):
-    """codereview pr — review a GitHub pull request where it lives.
+    """codereview pr — review a pull/merge request where it lives.
 
-    Read path works without a token on public repos. --post (review
-    comment + commit status) needs GITHUB_TOKEN with repo access."""
+    The --pr URL's shape selects the forge: a GitHub PR URL
+    (github.com/OWNER/REPO/pull/N) or a GitLab MR URL
+    (HOST/GROUP/PROJECT/-/merge_requests/N, subgroups included);
+    --repo OWNER/REPO with --number stays GitHub. The read path
+    works without a token on public repos/projects. --post
+    (review comment or MR note + commit status) needs
+    GITHUB_TOKEN / GITLAB_TOKEN with repo access."""
     from .github import GitHubClient, GitHubError, parse_pr_url, \
         review_pr
+    from .gitlab import GitLabClient, GitLabError, parse_mr_url, \
+        review_mr, url_base
 
     ap = argparse.ArgumentParser(prog="codereview pr")
     ap.add_argument("--repo", help="OWNER/REPO")
@@ -929,9 +936,24 @@ def _pr_main(argv, providers_override=None):
     args = ap.parse_args(argv)
     if _refuse_unwritable_out(args.out, "codereview pr"):
         return 2
+    forge = "github"
+    project = iid = mr_url_base = None
     try:
         if args.pr:
-            owner, repo, number = parse_pr_url(args.pr)
+            try:
+                owner, repo, number = parse_pr_url(args.pr)
+            except GitHubError:
+                try:
+                    _host, project, iid = parse_mr_url(args.pr)
+                except GitLabError:
+                    raise GitHubError(
+                        "not a supported PR/MR URL: "
+                        f"{args.pr!r} — expected a GitHub PR URL "
+                        "(https://github.com/OWNER/REPO/pull/N) "
+                        "or a GitLab MR URL (https://HOST/GROUP/"
+                        "PROJECT/-/merge_requests/N)")
+                forge = "gitlab"
+                mr_url_base = url_base(args.pr)
         elif args.repo and args.number:
             owner, repo = args.repo.split("/", 1)
             number = args.number
@@ -943,11 +965,18 @@ def _pr_main(argv, providers_override=None):
         print(f"codereview pr: {exc}", file=sys.stderr)
         return 2
 
-    if args.post and not os.environ.get("GITHUB_TOKEN", "").strip():
+    if args.post and forge == "github" \
+            and not os.environ.get("GITHUB_TOKEN", "").strip():
         # P5-02: fail fast — before providers are built, tests
         # run, or any review call is spent. (review_pr re-checks
         # at the library boundary.)
         print("codereview pr: --post needs GITHUB_TOKEN with "
+              "repo access", file=sys.stderr)
+        return 2
+    if args.post and forge == "gitlab" \
+            and not os.environ.get("GITLAB_TOKEN", "").strip():
+        # P5-02, GitLab side: the same fail-fast, for GITLAB_TOKEN.
+        print("codereview pr: --post needs GITLAB_TOKEN with "
               "repo access", file=sys.stderr)
         return 2
 
@@ -985,35 +1014,66 @@ def _pr_main(argv, providers_override=None):
             return 2
 
     test_results = _run_tests(args.test_command, ".")
-    client = GitHubClient()
-    if args.post:
-        # L17: a run that crashes after reading the PR must not
-        # leave a stale or missing verdict looking like success —
-        # mark the head commit pending (best effort, never success).
-        def _mark_crashed_pending():
-            sha = getattr(client, "head_sha", None)
-            if sha and not getattr(client, "status_set", False):
-                client.set_status(
-                    owner, repo, sha, "pending",
-                    "codereview crashed - no verdict was reached")
-        crash_mod.register_crash_hook(_mark_crashed_pending)
-    try:
-        report, actions = review_pr(
-            client, owner, repo, number, providers,
-            post=args.post, request_changes=args.request_changes,
-            previous=previous, builder_response=builder_response,
-            test_results=test_results, strict=args.strict,
-            allow_major=args.allow_major)
-    except GitHubError as exc:
-        print(f"codereview pr: {exc}", file=sys.stderr)
-        return 2
+    if forge == "gitlab":
+        client = GitLabClient(url_base_hint=mr_url_base)
+        if args.post:
+            # L17, GitLab side: a run that crashes after reading
+            # the MR must not leave a stale or missing verdict
+            # looking like success — mark the head commit pending
+            # (best effort, never success).
+            def _mark_crashed_pending():
+                sha = getattr(client, "head_sha", None)
+                if sha and not getattr(client, "status_set", False):
+                    client.set_status(
+                        project, sha, "pending",
+                        "codereview crashed - no verdict was reached")
+            crash_mod.register_crash_hook(_mark_crashed_pending)
+        try:
+            report, actions = review_mr(
+                client, project, iid, providers,
+                post=args.post, previous=previous,
+                builder_response=builder_response,
+                test_results=test_results, strict=args.strict,
+                allow_major=args.allow_major)
+        except GitLabError as exc:
+            print(f"codereview pr: {exc}", file=sys.stderr)
+            return 2
+    else:
+        client = GitHubClient()
+        if args.post:
+            # L17: a run that crashes after reading the PR must
+            # not leave a stale or missing verdict looking like
+            # success — mark the head commit pending (best
+            # effort, never success).
+            def _mark_crashed_pending():
+                sha = getattr(client, "head_sha", None)
+                if sha and not getattr(client, "status_set", False):
+                    client.set_status(
+                        owner, repo, sha, "pending",
+                        "codereview crashed - no verdict was reached")
+            crash_mod.register_crash_hook(_mark_crashed_pending)
+        try:
+            report, actions = review_pr(
+                client, owner, repo, number, providers,
+                post=args.post,
+                request_changes=args.request_changes,
+                previous=previous, builder_response=builder_response,
+                test_results=test_results, strict=args.strict,
+                allow_major=args.allow_major)
+        except GitHubError as exc:
+            print(f"codereview pr: {exc}", file=sys.stderr)
+            return 2
     try:
         jpath, mpath = _write_report(report, args.out,
                                      "codereview pr")
     except _ReportWriteFailed:
         return 2
-    print(f"codereview pr: {owner}/{repo}#{number} — "
-          f"{report['pr']['title']}")
+    if forge == "gitlab":
+        print(f"codereview pr: {project}!{iid} — "
+              f"{report['mr']['title']}")
+    else:
+        print(f"codereview pr: {owner}/{repo}#{number} — "
+              f"{report['pr']['title']}")
     print(f"  gate = {report['gate'].upper()} "
           f"({'; '.join(report.get('gate_reasons') or [])})")
     for a in actions:

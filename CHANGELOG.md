@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased — W3 installers + guided setup (branch `installers-w3`, 2026-11-07)
+
+- **Installers (OPC plan §6):** new `installers/` folder —
+  `install.sh` (macOS/Linux) and `install.ps1` (Windows)
+  one-line installers that gate on Python 3.11+, install
+  `codereview-ai` in an isolated environment (pipx preferred,
+  private venv fallback; nothing system-wide, no admin
+  rights), and print the next steps. Double-click wrappers
+  (`install.command`, `install-windows.cmd`) delegate to the
+  same scripts; `installers/README.md` states the honest
+  limit — the wrappers are unsigned, so Gatekeeper /
+  SmartScreen show a one-time warning — instead of simulating
+  a signed installer. Pre-publication, the installers accept
+  `CODEREVIEW_INSTALL_SOURCE` (a local checkout or exact
+  spec) in place of the PyPI package name.
+- **Setup wizard:** a plain-words closing block — any key
+  variables not yet set are named with the exact `export`
+  line to run, followed by "You're ready" next steps
+  (`doctor --plain`, then the first review). The wizard
+  still never asks for, echoes, or stores a key value.
+- **`codereview doctor --plain`:** the same probe result
+  rendered in plain words — each failed seat named with
+  what is wrong (missing/rejected key, out of quota,
+  rate-limited, unreachable) and the fix. JSON output stays
+  the default and byte-unchanged; exit codes are identical.
+
 ## Unreleased — C1 claim correction + profile-attribution lint (2026-11-07)
 
 - **Corrected (defect C1, found by the external tester's

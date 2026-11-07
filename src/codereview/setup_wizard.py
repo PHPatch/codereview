@@ -281,6 +281,7 @@ def run_wizard(input_fn=input, print_fn=print, environ=None,
                                  "skipped.")
                     else:
                         providers.append(extra)
+    missing_key_envs = []
     for spec in providers:
         desc = describe_spec(spec)
         if desc["kind"] == "agent":
@@ -294,6 +295,9 @@ def run_wizard(input_fn=input, print_fn=print, environ=None,
         elif desc["key_env"]:
             state = ("set" if environ.get(desc["key_env"])
                      else "NOT set")
+            if state == "NOT set" \
+                    and desc["key_env"] not in missing_key_envs:
+                missing_key_envs.append(desc["key_env"])
             print_fn(f"  seat {desc['seat']}: key env "
                      f"{desc['key_env']} is {state}. Export it "
                      "before running reviews; the key itself is "
@@ -351,5 +355,25 @@ def run_wizard(input_fn=input, print_fn=print, environ=None,
     print_fn(f"Saved your setup to {path} — providers: "
              f"{', '.join(providers)}; roles: "
              f"{len(roles)} assigned.")
+    # W3 closing block, in plain words: what is left to do
+    # before the first review, and the exact next commands.
+    # Text only — the wizard still never handles a key value;
+    # for a missing key it prints the variable name and the
+    # export line to run, nothing more.
+    if missing_key_envs:
+        print_fn("One thing left before reviews can run — "
+                 "these key variables are not set yet:")
+        for key_env in missing_key_envs:
+            print_fn(f"  {key_env}: in the terminal where you "
+                     f"run codereview, first run:  export "
+                     f"{key_env}=\"<your key>\"   (the key "
+                     "comes from your provider account; "
+                     "CodeReview never stores it)")
+    print_fn("You're ready. Next steps:")
+    print_fn("  1. codereview doctor --plain — check every "
+             "seat answers; any problem is explained in "
+             "plain words, with the fix")
+    print_fn("  2. cd into a git repo and run: codereview "
+             "— your first review")
     return {"providers": providers, "roles": roles,
             "seat_meta": seat_meta, "path": path}

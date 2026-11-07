@@ -1190,6 +1190,86 @@ def _parse_seat_meta(values, base=None):
     return meta
 
 
+_DOCTOR_PLAIN_PROBLEMS = {
+    "auth": ("its API key is missing or was rejected",
+             "set the seat's key variable in this terminal "
+             "before running reviews (setup names the variable "
+             "for each provider), or re-run `codereview setup` "
+             "and pick a different seat"),
+    "quota": ("the provider says this account is out of "
+              "quota or credit",
+              "wait for the quota to reset or top up the "
+              "account — or swap this seat in `codereview "
+              "setup`"),
+    "rate_limit": ("the provider is rate-limiting this "
+                   "account right now",
+                   "wait a few minutes and run doctor again"),
+    "transient": ("it could not be reached (network problem "
+                  "or the provider is having a hiccup)",
+                  "check your internet connection and run "
+                  "doctor again; if it keeps failing, the "
+                  "provider may be down"),
+    "empty": ("it answered with an empty reply",
+              "run doctor again; if it keeps happening, swap "
+              "this seat in `codereview setup`"),
+    "provider": ("the provider returned an error",
+                 "run doctor again; if it keeps failing, swap "
+                 "this seat in `codereview setup`"),
+}
+
+
+def _doctor_plain(result):
+    """W3: render a doctor result in plain words — what is
+    wrong and how to fix it — for a non-coder reader. The JSON
+    output stays the default and is byte-unchanged; this is a
+    rendering of the same result dict, never a second probe."""
+    lines = []
+    error = result.get("error") or ""
+    seats = result.get("seats") or []
+    if error and not seats:
+        lines.append("CodeReview doctor — something needs "
+                     "fixing first:")
+        if "not set up" in error:
+            lines.append("  Problem: CodeReview is not set up "
+                         "yet — no reviewer seats are "
+                         "configured.")
+            lines.append("  Fix: run `codereview setup` and "
+                         "pick your providers; it takes a "
+                         "couple of minutes.")
+        else:
+            lines.append(f"  Problem: {error}")
+            lines.append("  Fix: correct the setting above, "
+                         "then run `codereview doctor "
+                         "--plain` again.")
+        return "\n".join(lines)
+    lines.append("CodeReview doctor — checking your reviewer "
+                 "seats:")
+    bad = 0
+    for seat in seats:
+        name = seat.get("name", "?")
+        if seat.get("ok"):
+            lines.append(f"  OK   {name} — answers fine")
+            continue
+        bad += 1
+        problem, fix = _DOCTOR_PLAIN_PROBLEMS.get(
+            seat.get("error_class") or "",
+            ("it did not answer",
+             "run doctor again; if it keeps failing, swap "
+             "this seat in `codereview setup`"))
+        lines.append(f"  FAIL {name} — {problem}.")
+        detail = seat.get("error") or ""
+        if detail:
+            lines.append(f"       (provider said: {detail})")
+        lines.append(f"       Fix: {fix}.")
+    if bad:
+        lines.append(f"{bad} of {len(seats)} seats need "
+                     "attention before reviews will run well.")
+    else:
+        lines.append("All seats OK — you're ready to run "
+                     "reviews.")
+    return "\n".join(lines)
+
+
 def _doctor_main(argv, providers_override=None,
                  fallbacks_override=None):
     ap = argparse.ArgumentParser(
@@ -1217,13 +1297,29 @@ def _doctor_main(argv, providers_override=None,
                          "also the probe's per-seat wait bound "
                          "(default: the review path's per-call "
                          "ceiling)")
+    ap.add_argument("--plain", action="store_true",
+                    help="print the result in plain words — "
+                         "each problem with its fix — instead "
+                         "of JSON (same probe, same exit code)")
     args = ap.parse_args(argv)
+
+    def emit(result, code, indent=False):
+        # JSON bytes are exactly what they were before --plain
+        # existed; plain mode only changes the rendering.
+        if args.plain:
+            print(_doctor_plain(result))
+        elif indent:
+            print(json.dumps(result, ensure_ascii=False,
+                             indent=1))
+        else:
+            print(json.dumps(result))
+        return code
+
     if args.timeout is not None and args.timeout <= 0:
-        print(json.dumps(
+        return emit(
             {"ok": False, "seats": [],
              "error": "--timeout must be a positive number "
-                      "of seconds"}))
-        return 2
+                      "of seconds"}, 2)
     if providers_override is not None:
         providers = providers_override
     else:
@@ -1239,20 +1335,18 @@ def _doctor_main(argv, providers_override=None,
                 print(f"codereview: {exc}", file=sys.stderr)
                 return 2
         if not specs:
-            print(json.dumps(
+            return emit(
                 {"ok": False, "seats": [],
                  "error": "not set up: pass --provider, set "
                           "$CODEREVIEW_PROVIDERS, or run "
-                          "`codereview setup`"}))
-            return 2
+                          "`codereview setup`"}, 2)
         try:
             providers = build_providers(
                 specs, agent_timeout=args.timeout)
         except Exception as exc:  # noqa: BLE001
-            print(json.dumps({"ok": False, "seats": [],
-                              "error": f"provider setup failed: "
-                                       f"{exc}"}))
-            return 2
+            return emit({"ok": False, "seats": [],
+                         "error": f"provider setup failed: "
+                                  f"{exc}"}, 2)
     fallbacks = fallbacks_override
     if fallbacks is None and args.fallback:
         fallbacks = {}
@@ -1261,30 +1355,28 @@ def _doctor_main(argv, providers_override=None,
             lens = lens.strip()
             if not eq or lens not in core.LENSES \
                     or not pspec.strip():
-                print(json.dumps(
+                return emit(
                     {"ok": False, "seats": [],
                      "error": f"bad --fallback {spec!r}: want "
                               f"lens=provider-spec with lens one "
-                              f"of {sorted(core.LENSES)}"}))
-                return 2
+                              f"of {sorted(core.LENSES)}"}, 2)
             try:
                 built = build_providers(
                     [pspec.strip()], agent_timeout=args.timeout)
             except Exception as exc:  # noqa: BLE001
-                print(json.dumps(
+                return emit(
                     {"ok": False, "seats": [],
-                     "error": f"fallback setup failed: {exc}"}))
-                return 2
+                     "error": f"fallback setup failed: {exc}"},
+                    2)
             (fb_name, fb_fn), = built.items()
             if fb_name in providers:
                 # Same guard as the review path (764e1d15a218):
                 # a fallback that duplicates a primary seat is
                 # a configuration error, not a second opinion.
-                print(json.dumps(
+                return emit(
                     {"ok": False, "seats": [],
                      "error": f"fallback seat {fb_name!r} is "
-                              f"already a primary seat"}))
-                return 2
+                              f"already a primary seat"}, 2)
             fallbacks[lens] = (fb_name, fb_fn)
     seat_roles, role_models = {}, {}
     if args.role:
@@ -1294,17 +1386,15 @@ def _doctor_main(argv, providers_override=None,
                     providers, args.role,
                     agent_timeout=args.timeout)
         except Exception as exc:  # noqa: BLE001
-            print(json.dumps(
+            return emit(
                 {"ok": False, "seats": [],
-                 "error": f"role assignment failed: {exc}"}))
-            return 2
+                 "error": f"role assignment failed: {exc}"}, 2)
     result = core.run_doctor(providers, fallbacks=fallbacks,
                              timeout=args.timeout)
     if seat_roles:
         result = {**result, "seat_roles": seat_roles,
                   "role_models": role_models}
-    print(json.dumps(result, ensure_ascii=False, indent=1))
-    return 0 if result["ok"] else 2
+    return emit(result, 0 if result["ok"] else 2, indent=True)
 
 
 def _timestamped_record_name(name):

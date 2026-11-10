@@ -127,7 +127,7 @@ SCHEMA_ID = "codereview.report/1"
 # uppercase spelling.
 GATES = ("pass", "blocked", "inconclusive")
 VERDICTS = ("PASS", "BLOCKED", "INCONCLUSIVE")
-VERDICT_FOR_GATE = dict(zip(GATES, VERDICTS))
+VERDICT_FOR_GATE = dict(zip(GATES, VERDICTS, strict=True))
 EXIT_CODES = {"pass": 0, "blocked": 1, "inconclusive": 2}
 
 MODES = ("review", "verify")

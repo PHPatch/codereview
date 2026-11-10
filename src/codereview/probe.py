@@ -53,7 +53,7 @@ import time
 try:
     import resource
 except ImportError:  # non-POSIX: no rlimits to apply
-    resource = None
+    resource = None  # type: ignore[assignment]
 
 PROBE_TIMEOUT_DEFAULT = 120
 _OUTPUT_CAP = 20000

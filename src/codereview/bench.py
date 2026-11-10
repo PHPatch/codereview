@@ -98,7 +98,7 @@ def _validate_expected(case_id, exp, where):
             line = int(line)
         except (TypeError, ValueError):
             raise ValueError(f"{where}: case {case_id}: expected line "
-                             f"{line!r} is not an integer")
+                             f"{line!r} is not an integer") from None
     return {
         "severity": sev,
         "category": str(exp.get("category") or "correctness").lower(),
@@ -550,7 +550,7 @@ def run_bench(corpus_dir, config_specs, out_dir, split="all",
     Default OFF: run_review is called with exactly the historical
     arguments and records carry no probe fields."""
     if split not in ("all",) + SPLITS:
-        raise ValueError(f"split must be all, public, or holdout")
+        raise ValueError("split must be all, public, or holdout")
     all_cases = load_corpus(corpus_dir)
     # Hash of every case's diff, across all splits: a stored result
     # record is only a valid resume point when the case it was

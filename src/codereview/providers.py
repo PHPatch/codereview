@@ -64,7 +64,7 @@ except ImportError:  # standalone module load
     try:
         import discovery as _discovery  # type: ignore
     except ImportError:
-        _discovery = None
+        _discovery = None  # type: ignore[assignment]
 
 DEFAULT_TIMEOUT = 240
 AGENT_TIMEOUT = 900
@@ -929,7 +929,7 @@ def _call_hosted(host, argv, prompt, timeout, private_home,
                 "evidence": {"stage": "workspace-create",
                              "transport": "herdr",
                              "detail": str(exc)[:300]}}
-            raise err
+            raise err from exc
         receipt["workspace_id"] = workspace_id
         receipt["pane_id"] = pane_id
         # The launcher line: the seat's own argv, stdin FROM
@@ -954,7 +954,7 @@ def _call_hosted(host, argv, prompt, timeout, private_home,
                 "evidence": {"stage": "pane-run",
                              "transport": "herdr",
                              "detail": str(exc)[:300]}}
-            raise err
+            raise err from exc
         outcome = _run_hosted_seat(
             host, receipt, pane_id, out_path, err_path, rc_path,
             cli_key, log, timeout, stall_after, block_grace)
@@ -1071,8 +1071,9 @@ def command_agent(command, timeout=AGENT_TIMEOUT, private_home=False,
         try:
             argv = shlex.split(command)
         except ValueError as exc:
-            raise ProviderError(f"bad agent command {command!r}: {exc}",
-                                retryable=False)
+            raise ProviderError(
+                f"bad agent command {command!r}: {exc}",
+                retryable=False) from exc
         if not argv:
             raise ProviderError("empty agent command", retryable=False)
         if host is not None:
@@ -1126,7 +1127,7 @@ def command_agent(command, timeout=AGENT_TIMEOUT, private_home=False,
                 err.seat_facts = {
                     "state": "failed", "class": "error",
                     "evidence": {"stage": "start"}}
-                raise err
+                raise err from exc
             finally:
                 if proc is not None:
                     # Normal exit included: an agent's background
@@ -1200,9 +1201,13 @@ except ImportError:  # standalone module load
 # Legacy tuple view of the registry (kind, base_url, model,
 # key_env, extra_payload) — registry.PRESETS is the source of
 # truth; this shape is kept for existing consumers.
+def _preset_tuple(p):  # type: ignore[no-untyped-def]
+    return (p["kind"], p["base_url"], p["model"], p["key_env"],
+            p["extra"])
+
+
 PRESETS = {
-    name: (p["kind"], p["base_url"], p["model"], p["key_env"],
-           p["extra"])
+    name: _preset_tuple(p)
     for name, p in registry.PRESETS.items()
 }
 

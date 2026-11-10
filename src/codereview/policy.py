@@ -430,11 +430,11 @@ def load_policy(path):
         # valid policy unloadable.
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        raise PolicyError(f"{path}: not valid UTF-8 ({exc})")
+        raise PolicyError(f"{path}: not valid UTF-8 ({exc})") from exc
     try:
         data = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
-        raise PolicyError(f"{path}: invalid TOML: {exc}")
+        raise PolicyError(f"{path}: invalid TOML: {exc}") from exc
     except RecursionError as exc:
         # P2-04: a deeply nested document exhausts the parser's
         # stack instead of raising TOMLDecodeError — surface it

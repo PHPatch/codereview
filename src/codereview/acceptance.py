@@ -352,8 +352,8 @@ def run_acceptance(corpus_dir, seat_fn, *, seat_family,
     corpus = load_corpus(corpus_dir)
     cases = corpus["cases"]
     scorecard = corpus["scorecard"]
-    metrics_spec = {m["id"]: m
-                    for m in scorecard.get("metrics") or []}
+    # (A metrics_spec index used to be built here and never
+    # read in this function — removed, review 2026-11-10 §4.9.)
 
     def adjudicate(case, **kw):
         finding, dispute, region, indep = case_inputs(

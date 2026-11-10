@@ -34,7 +34,7 @@ import platform
 import sys
 import zipfile
 
-from .core import VERSION, redact_secrets
+from .core import redact_secrets
 
 SCHEMA = "codereview.support-bundle/1"
 MAX_FILE_BYTES = 2 * 1024 * 1024

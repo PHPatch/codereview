@@ -48,7 +48,7 @@ _MAX_TRACEBACK = 20000
 
 # Callables the entry points register to run after a crash (for
 # example: mark a GitHub commit status pending). Best-effort.
-_crash_hooks = []
+_crash_hooks: list = []
 
 
 def register_crash_hook(fn):

@@ -173,7 +173,8 @@ def load_config(path):
         with open(os.path.expanduser(path), encoding="utf-8") as fh:
             config = json.load(fh)
     except Exception as exc:  # noqa: BLE001
-        raise ValueError(f"could not read evidence config: {exc}")
+        raise ValueError(
+            f"could not read evidence config: {exc}") from exc
     if not isinstance(config, dict):
         raise ValueError("evidence config must be a JSON object")
     validate_config(config)

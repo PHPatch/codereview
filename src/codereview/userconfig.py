@@ -56,7 +56,7 @@ def load_user_config(environ=None):
             data = tomllib.load(fh)
         except tomllib.TOMLDecodeError as exc:
             raise ValueError(
-                f"user config {path} is not valid TOML: {exc}")
+                f"user config {path} is not valid TOML: {exc}") from exc
     # Type-validate before iterating (open-refutations
     # hardening, 9a4415ddafa6): a non-list `providers` was
     # iterated element-wise (a string silently became one

@@ -84,6 +84,31 @@ class SharedRunnerTests(unittest.TestCase):
                 _pid_alive(child_pid),
                 f"spawned child {child_pid} survived the timeout kill")
 
+    def test_timeout_bounded_when_child_escapes_group(self):
+        # Reviewer reproduction (2026-11-10): a child that
+        # leaves the process group (setsid) and keeps the output
+        # pipe keeps an UNBOUNDED post-kill communicate()
+        # blocked until it exits — on 62eaf4b this command with
+        # timeout=2 returned after 30.0s, not 2s. The drain is
+        # now bounded (_DRAIN_SECONDS): the call must return the
+        # failed result within a few seconds even though the
+        # escaped child is still alive (the group kill cannot
+        # reach it; the runner gives up on the pipes instead).
+        with tempfile.TemporaryDirectory() as cwd:
+            started = time.time()
+            results = testrun.run_commands(
+                ["setsid sleep 30 & echo started; sleep 30"],
+                cwd, timeout=2)
+            elapsed = time.time() - started
+        self.assertEqual(len(results), 1)
+        self.assertFalse(results[0]["ok"])
+        self.assertIsNone(results[0]["exit_code"])
+        self.assertEqual(results[0]["output_tail"], "timed out")
+        self.assertLess(
+            elapsed, 15,
+            f"timeout path took {elapsed:.1f}s for a 2s timeout — "
+            "the post-kill drain is not bounded")
+
     def test_cli_wrapper_uses_shared_runner(self):
         # cli._run_tests keeps its name/signature but delegates:
         # a timeout through the CLI path must produce the same

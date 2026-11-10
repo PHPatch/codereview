@@ -18,6 +18,13 @@ This module is the single implementation both call sites use:
 * Each command starts in its OWN process group
   (start_new_session=True, POSIX); on timeout the whole group
   is killed, not just the shell, so no spawned child survives.
+  Two limits, stated plainly: (a) a child that ESCAPES the
+  group (setsid, double-fork) cannot be killed by the group
+  kill, and if it still holds the output pipes the post-kill
+  drain is bounded (_DRAIN_SECONDS) — the failed result is
+  returned anyway, escaped child or not; (b) on Windows
+  start_new_session has no effect and only the shell is
+  killed (see issue #12).
 * A timeout is a failed RESULT, never an exception: the
   returned entry is {command, ok: False, exit_code: None,
   output_tail: "timed out"} — the historical CLI shape.
@@ -37,6 +44,7 @@ import signal
 import subprocess
 
 TIMEOUT_SECONDS = 1800
+_DRAIN_SECONDS = 5
 _TAIL_CHARS = 4000
 _TIMEOUT_TAIL = "timed out"
 
@@ -86,10 +94,28 @@ def run_commands(commands, cwd, *, timeout=TIMEOUT_SECONDS,
             out_b, err_b = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             _kill_group(proc)
-            # Reap and drain: the group is dead, so this returns
-            # promptly and cannot block on a surviving child
-            # holding the pipes open.
-            proc.communicate()
+            # Reap and drain, BOUNDED: a child that escaped the
+            # process group (setsid, double-fork) can still hold
+            # the output pipes open, and an unbounded
+            # communicate() would then block until IT exits —
+            # the 2s timeout would take as long as the child
+            # lives. Drain with a bound; on a second timeout,
+            # close our ends of the pipes and return the failed
+            # result anyway. The escaped child itself cannot be
+            # killed by the group kill (module docstring).
+            try:
+                proc.communicate(timeout=_DRAIN_SECONDS)
+            except subprocess.TimeoutExpired:
+                for stream in (proc.stdout, proc.stderr):
+                    try:
+                        if stream is not None:
+                            stream.close()
+                    except OSError:
+                        pass
+                try:
+                    proc.wait(timeout=_DRAIN_SECONDS)
+                except subprocess.TimeoutExpired:
+                    pass
             results.append({"command": cmd, "ok": False,
                             "exit_code": None,
                             "output_tail": _TIMEOUT_TAIL})

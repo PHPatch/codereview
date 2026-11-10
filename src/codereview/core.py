@@ -8429,7 +8429,7 @@ def run_workflow(steps, providers, repo, out_dir, max_rounds=3,
             if os.path.exists(rp):
                 os.remove(rp)
             out = _run_agent(cmd, {
-                "CODEREVIEW_STEP": sid, "CODEREVIEW_PHASE": "fix",
+                "CODEREVIEW_STEP": sid, "CODEREVIEW_PHASE": "fix",  # noqa: B023 — invoke_builder is redefined per step and consumed only within the same iteration (run_loop, below); sid is this step's id, and the sibling closures pin their values by default args exactly as ruff suggests
                 "CODEREVIEW_PACKET": pp, "CODEREVIEW_RESPONSE": rp,
                 "CODEREVIEW_GATE": str(packet.get("gate") or ""),
                 "CODEREVIEW_ROUND": str(packet.get("round") or "")})
@@ -8439,7 +8439,7 @@ def run_workflow(steps, providers, repo, out_dir, max_rounds=3,
                     return fh.read()
             return out
 
-        def _tests(cmds=step.get("test_commands") or []):
+        def _tests(cmds=step.get("test_commands") or []):  # noqa: B008 — the default is evaluated once at definition time, per step, on purpose: _tests must see this step's test commands as a snapshot, not whatever a later mutation leaves in step
             # The shared runner (external review 2026-11-10,
             # §4.3): testrun.run_commands is the ONE
             # implementation the CLI test runner also uses. The

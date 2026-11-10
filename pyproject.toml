@@ -43,15 +43,6 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["F", "E9", "B"]
 
-[tool.ruff.lint.per-file-ignores]
-# core.py carries two reviewed-safe default-argument idioms in
-# run_workflow's step closures (the defaults are evaluated once
-# per step, at definition time, which is exactly the semantics
-# the code wants): B023 on the `sid` lambda default and B008 on
-# the `_tests` cmds default. The genuine B023 (a deferred
-# lambda capturing the precedent loop's `path`) was fixed.
-"src/codereview/core.py" = ["B023", "B008"]
-
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true

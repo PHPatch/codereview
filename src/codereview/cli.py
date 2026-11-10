@@ -57,30 +57,16 @@ from .providers import (ProviderError, build_providers,
 
 
 def _run_tests(commands, cwd):
-    # shell=True is deliberate: test commands are operator-supplied
-    # shell strings (the same trust level as a CI config the operator
-    # wrote). They are never taken from the diff under review.
-    results = []
-    for cmd in commands or []:
-        try:
-            out = subprocess.run(cmd, shell=True, cwd=cwd,
-                                 capture_output=True, timeout=1800,
-                                 check=False)
-            tail = (out.stdout + out.stderr).decode(
-                "utf-8", errors="replace")[-4000:]
-            # Security fix (0.13.2 delta, audit T): redact at
-            # production, the standard the evidence runner
-            # already meets (evidence._result) — a failing
-            # test that echoes config or env must not put a
-            # secret into prompts or the record downstream.
-            results.append({"command": cmd, "ok": out.returncode == 0,
-                            "exit_code": out.returncode,
-                            "output_tail": core.redact_secrets(tail)})
-        except subprocess.TimeoutExpired:
-            results.append({"command": cmd, "ok": False,
-                            "exit_code": None,
-                            "output_tail": "timed out"})
-    return results
+    # The shared runner (external review 2026-11-10, §4.3):
+    # testrun.run_commands is the ONE implementation — it
+    # redacts output at production (the audit T standard the
+    # evidence runner already meets), returns a failed result
+    # on timeout instead of raising, and kills the command's
+    # whole process group on timeout so no spawned child is
+    # orphaned. This wrapper keeps the historical cli._run_tests
+    # name and signature for its call sites.
+    from . import testrun
+    return testrun.run_commands(commands, cwd)
 
 
 def _load_patch(args):

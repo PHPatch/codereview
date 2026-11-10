@@ -52,7 +52,7 @@ import time
 from . import diversity as diversity_mod
 from . import herdrhost
 from . import record_schema as record_schema_mod
-from . import notify as notify_mod
+from . import notify as notify_mod  # noqa: F401  (re-exported for consumers)
 from . import policy as policy_mod
 from . import seatstate
 
@@ -2648,7 +2648,7 @@ def _ast_hash(node):
     ).hexdigest()
 
 
-_FUNC_SCAN_CACHE = {}
+_FUNC_SCAN_CACHE: dict = {}
 _FUNC_SCAN_CACHE_MAX = 64
 
 
@@ -3030,7 +3030,8 @@ def apply_precedents(findings, entries, blob_lookup,
         outcome = None
         if entry.get("function") and entry.get("function_hash"):
             link, outcome = _function_precedent_outcome(
-                f, entry, source_of(path), lambda: blob_of(path))
+                f, entry, source_of(path),
+                lambda path=path: blob_of(path))
         elif entry.get("blob") \
                 and blob_of(path) == entry.get("blob"):
             link = _precedent_file_link(entry)
@@ -6016,11 +6017,11 @@ def run_review(patch, providers, context="", test_results=None,
             f"({fixture_scope.get('manifest_path')}, sha256 "
             f"{str(fixture_scope.get('manifest_sha256') or '')[:12]}"
             f"…) — preserved in fixture_findings, not blocking"]
-        for exc in fixture_excess:
+        for excess in fixture_excess:
             reasons = reasons + [
-                f"fixture path {exc['pattern']}: "
-                f"{exc['actual']} finding(s) exceed the "
-                f"manifest's expected count {exc['expected']} — "
+                f"fixture path {excess['pattern']}: "
+                f"{excess['actual']} finding(s) exceed the "
+                f"manifest's expected count {excess['expected']} — "
                 f"the excess stays in findings as product "
                 f"findings"]
     if gate == "pass":
@@ -8359,7 +8360,7 @@ def run_workflow(steps, providers, repo, out_dir, max_rounds=3,
             "utf-8", errors="replace")[-2000:]
 
     try:
-        base0 = _git(repo, "rev-parse", "HEAD")
+        _git(repo, "rev-parse", "HEAD")
     except Exception as exc:  # noqa: BLE001
         return {"mode": "workflow", "workflow_state": "failed",
                 "error": f"repository has no HEAD commit: {exc}",
@@ -8439,22 +8440,19 @@ def run_workflow(steps, providers, repo, out_dir, max_rounds=3,
             return out
 
         def _tests(cmds=step.get("test_commands") or []):
-            # Imported lazily to avoid a core->cli dependency cycle:
-            # the engine shells the commands itself.
-            results_t = []
-            for c in cmds:
-                o = subprocess.run(c, shell=True, cwd=repo,
-                                   capture_output=True, timeout=1800,
-                                   check=False)
-                tail = (o.stdout + o.stderr).decode(
-                    "utf-8", errors="replace")[-4000:]
-                # Audit T: redact at production, as the CLI
-                # test runner and the evidence runner do.
-                results_t.append({"command": c,
-                                   "ok": o.returncode == 0,
-                                   "exit_code": o.returncode,
-                                   "output_tail": redact_secrets(tail)})
-            return results_t
+            # The shared runner (external review 2026-11-10,
+            # §4.3): testrun.run_commands is the ONE
+            # implementation the CLI test runner also uses. The
+            # copy that used to live here did not catch the
+            # timeout exception, so a test command exceeding
+            # 1800s raised out of the workflow step and crashed
+            # the workflow; the shared runner returns a failed
+            # result instead and kills the command's whole
+            # process group on timeout. Audit T redaction at
+            # production is preserved (the runner's default
+            # redactor is this module's redact_secrets).
+            from . import testrun
+            return testrun.run_commands(cmds, repo)
 
         loop_result = run_loop(
             get_patch, invoke_builder, providers,

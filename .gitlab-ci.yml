@@ -1,0 +1,112 @@
+# CodeReview Loop — CI pipeline (external review 2026-11-10, §4.2).
+#
+# Five jobs, standard library + ruff/mypy/build/twine only.
+# NO provider API keys are used anywhere in this pipeline: the
+# test suite runs entirely on stubbed providers, and the lint,
+# package and selftest jobs need no credentials at all. The
+# only secrets in the pipeline are the PyPI credentials for the
+# manual release job, held as GitLab protected + masked CI/CD
+# variables (never in this file):
+#
+#   TWINE_USERNAME   — "__token__" for a PyPI API token
+#   TWINE_PASSWORD   — the PyPI API token itself (masked)
+#
+# (PyPI Trusted Publishing via OIDC is the alternative to the
+# token pair; if it is configured on the project, drop the two
+# variables and the --non-interactive env below stays valid.)
+
+stages:
+  - test
+  - package
+  - release
+
+default:
+  interruptible: true
+
+# (1) Unit tests on every supported Python. The suite is
+# stdlib-only and needs no provider keys.
+.test-template:
+  stage: test
+  script:
+    - python --version
+    - python -m unittest discover -s tests
+
+test:py311:
+  extends: .test-template
+  image: python:3.11
+
+test:py312:
+  extends: .test-template
+  image: python:3.12
+
+test:py313:
+  extends: .test-template
+  image: python:3.13
+
+# (2) Lint + types. Rule sets and configuration live in
+# pyproject.toml ([tool.ruff] / [tool.mypy]) — F, E9, B to
+# start, exactly as the 2026-11-10 review prescribed.
+lint:
+  stage: test
+  image: python:3.12
+  script:
+    - pip install --quiet ruff mypy
+    - ruff check src
+    - mypy src/codereview
+
+# (3) Package: build from a clean checkout, verify metadata,
+# install the wheel into a fresh venv and smoke the console
+# entry point, and FAIL if the sdist carries any bytecode
+# (__pycache__ / *.pyc) — the 0.13.1 packaging mistake this
+# job exists to make impossible.
+package:
+  stage: package
+  image: python:3.12
+  script:
+    - pip install --quiet build twine
+    - python -m build
+    - twine check dist/*
+    - |
+      if tar -tzf dist/*.tar.gz | grep -E '__pycache__|\.pyc$'; then
+        echo "sdist contains bytecode artifacts" >&2
+        exit 1
+      fi
+    - python -m venv /tmp/wheeltest
+    - /tmp/wheeltest/bin/pip install --quiet dist/*.whl
+    - /tmp/wheeltest/bin/codereview --version
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
+
+# (4) sdist self-test: unpack the sdist somewhere clean and
+# run ITS OWN test suite against the packaged sources — the
+# package must be self-contained, not just importable.
+sdist-selftest:
+  stage: package
+  image: python:3.12
+  needs:
+    - package
+  script:
+    - mkdir -p /tmp/sdist-test
+    - tar -xzf dist/*.tar.gz -C /tmp/sdist-test --strip-components=1
+    - cd /tmp/sdist-test && python -m unittest discover -s tests
+
+# (5) Release: MANUAL, tags only. Publishes the artefacts the
+# package job built from this exact tag checkout to PyPI with
+# twine, using the protected + masked variables named in the
+# header comment. This replaces the hand-written uploader.
+# The external reviewer's READY remains a human gate: a human
+# starts this job only after READY for the tagged commit.
+release:
+  stage: release
+  image: python:3.12
+  needs:
+    - package
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: manual
+  environment: release
+  script:
+    - pip install --quiet twine
+    - TWINE_NON_INTERACTIVE=true twine upload dist/*

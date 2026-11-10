@@ -1,3 +1,10 @@
+# Bytecode never ships: __pycache__/*.pyc produced by running
+# the suite in a working tree must not leak into the sdist
+# (the CI package job fails the build if any appear). The
+# recursive-exclude directives must come AFTER the grafts
+# below — MANIFEST.in is processed in order, and a graft
+# re-adds whatever an earlier exclude removed.
+global-exclude *.pyc
 # Packaging artefacts (Epic K3b): the herdr plugin and the
 # agent skill ship in the sdist alongside the engine, so the
 # documented `herdr plugin link` route works from an unpacked
@@ -63,3 +70,11 @@ include bench/CLAIMS-SHEET.md bench/PUBLIC-BENCHMARK.md
 include pilot/QUICKSTART.md pilot/SECURITY-AND-DATA.md
 include pilot/DEMO.md pilot/FEEDBACK-FORM.md
 include ROADMAP.md REVIEW-NOTES.md
+
+# Bytecode exclusion, applied last (see note at top):
+recursive-exclude tests __pycache__ *.pyc
+recursive-exclude bench __pycache__ *.pyc
+recursive-exclude probes __pycache__ *.pyc
+recursive-exclude herdr-plugin-codereview __pycache__ *.pyc
+recursive-exclude src __pycache__ *.pyc
+recursive-exclude skills __pycache__ *.pyc

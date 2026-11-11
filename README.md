@@ -42,7 +42,11 @@ builder ──diff──▶ deterministic checks ──▶ reviewer A (correctne
 ## Quick start
 
 ```bash
-pip install codereview-loop        # or: pip install -e . from a clone
+pip install codereview-loop
+
+# …or from a clone:
+git clone https://github.com/Skywalkerx1/codereview.git
+cd codereview && pip install -e .
 
 export GEMINI_API_KEY=...     # any two providers are a good start
 export OPENAI_API_KEY=...

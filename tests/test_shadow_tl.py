@@ -322,8 +322,12 @@ class PanelSeat:
         if "SHADOW MODE" in prompt:
             p = payload()
         elif "TECH LEAD ADJUDICATION pass" in prompt:
+            # The deciding quote is a distinct region line, not
+            # the refuter's own quote: since fail-closed batch 1
+            # (A6, #19) a dismissal whose quote copies the
+            # refuter's fails the grounding check and escalates.
             p = {"decision": "sustain_refutation",
-                 "evidence_quote": "print(VALUE)",
+                 "evidence_quote": "RESULT = VALUE * 2",
                  "rationale": "binding decision"}
         elif "CROSS-FAMILY CONFIRMATION pass" in prompt:
             p = self.xconfirm

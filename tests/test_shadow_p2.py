@@ -233,7 +233,11 @@ class _Seat:
         self.xconfirm = xconfirm or {"verdict": "confirm"}
         self.tech_lead = tech_lead or {
             "decision": "sustain_refutation",
-            "evidence_quote": "print(VALUE)",
+            # Distinct from the refuter's quote ("print(VALUE)"):
+            # since fail-closed batch 1 (A6, #19) a dismissal
+            # quoting the refuter's own line fails the grounding
+            # check and escalates instead of adjudicating.
+            "evidence_quote": "RESULT = VALUE * 2",
             "rationale": "the refutation is correct"}
 
     def __call__(self, prompt):

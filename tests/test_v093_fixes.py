@@ -222,7 +222,11 @@ class VerificationLensSourceTests(unittest.TestCase):
         return seat
 
     def _run(self, sources):
-        prior = {"findings": [{
+        # gate "blocked": since fail-closed batch 1 (A9, #20)
+        # verification refuses a previous report the gate did
+        # not block; a verification round only ever follows a
+        # blocked review, which is what this fixture models.
+        prior = {"gate": "blocked", "findings": [{
             "id": "abc123", "severity": "major", "file": "x.py",
             "title": "t", "sources": sources}]}
         return core.run_verification(

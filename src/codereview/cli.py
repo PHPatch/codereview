@@ -314,6 +314,19 @@ def _out_dir_problem(out):
     return None
 
 
+def _archived_scope_for(args):
+    """The operator-designated record locations for a run
+    (fail-closed batch 1, A3): the --archived-dir entries plus
+    the run's own --out directory (repo-relative). Nothing
+    else is ever excluded from the reviewed span by name."""
+    scope = list(getattr(args, "archived_dir", None) or [])
+    out_rel = core._out_rel(getattr(args, "repo", None) or ".",
+                            args.out)
+    if out_rel and out_rel not in scope:
+        scope.append(out_rel)
+    return scope
+
+
 def _refuse_unwritable_out(out, prog):
     """Print the P5-07 refusal and return True when --out is
     unusable, so the caller exits 2 before doing any work."""
@@ -546,6 +559,11 @@ def _loop_main(argv, providers_override=None):
     ap.add_argument("--context", default="")
     ap.add_argument("--test-command", action="append", default=[])
     ap.add_argument("--out", default="codereview-out")
+    ap.add_argument("--archived-dir", action="append", default=[],
+                    help="repo-relative directory (or file) holding "
+                         "review records to exclude from the reviewed "
+                         "span; repeatable. The --out directory is "
+                         "always included.")
     ap.add_argument("--allow-major", action="store_true")
     ap.add_argument("--strict", action="store_true")
     args = ap.parse_args(argv)
@@ -622,7 +640,8 @@ def _loop_main(argv, providers_override=None):
             max_rounds=args.max_rounds,
             allow_major=args.allow_major,
             strict=args.strict, on_round=on_round,
-            waived_ids=args.waive)
+            waived_ids=args.waive,
+            archived_scope=_archived_scope_for(args))
     except _ReportWriteFailed:
         return 2
     summary = {k: v for k, v in result.items() if k != "rounds"}
@@ -2191,6 +2210,12 @@ def main(argv=None, providers_override=None, seat_meta_override=None,
     ap.add_argument("--out", default="codereview-out",
                     help="output directory for the report (default: "
                          "codereview-out)")
+    ap.add_argument("--archived-dir", action="append", default=[],
+                    help="repo-relative directory (or file) holding "
+                         "review records to exclude from the reviewed "
+                         "span as generated artifacts; repeatable. "
+                         "The --out directory is always included. "
+                         "Nothing else is excluded by name.")
     ap.add_argument("--allow-major", action="store_true",
                     help="only blockers block the gate (majors advisory)")
     ap.add_argument("--strict", action="store_true",
@@ -2766,6 +2791,8 @@ def main(argv=None, providers_override=None, seat_meta_override=None,
         if shadow_seat:
             review_kwargs["tech_lead_shadow_seat"] = shadow_seat
 
+    archived_scope = _archived_scope_for(args)
+
     file_context = None
     if not args.verify_previous and not args.patch \
             and not args.files and not args.no_file_context:
@@ -2778,7 +2805,7 @@ def main(argv=None, providers_override=None, seat_meta_override=None,
         try:
             file_context, fc_entries = core.collect_file_context(
                 args.repo or ".", patch, range_spec=args.range,
-                staged=args.staged)
+                staged=args.staged, archived_scope=archived_scope)
         except Exception as exc:  # noqa: BLE001
             print(f"codereview: file context unavailable "
                   f"({exc}); reviewing the diff alone",
@@ -2817,7 +2844,8 @@ def main(argv=None, providers_override=None, seat_meta_override=None,
         try:
             agents_context, ag_entries = \
                 agentsmd.collect_agents_context(
-                    args.repo or ".", patch)
+                    args.repo or ".", patch,
+                    archived_scope=archived_scope)
         except Exception as exc:  # noqa: BLE001
             print(f"codereview: AGENTS.md context unavailable "
                   f"({exc}); reviewing without project guidance",
@@ -2865,7 +2893,7 @@ def main(argv=None, providers_override=None, seat_meta_override=None,
             seat_meta=seat_meta, fallbacks=fallbacks,
             record_extra=record_extra,
             private=args.private, progress=_seat_progress,
-            notify=notify)
+            notify=notify, archived_scope=archived_scope)
         # Epic C4: verify the builder report's claimed commands
         # against the tree and record the outcome in the run
         # record. This runs after the gate has been decided and
@@ -2898,7 +2926,8 @@ def main(argv=None, providers_override=None, seat_meta_override=None,
             gate_profile=args.gate_profile,
             file_context=file_context, progress=_seat_progress,
             agents_context=agents_context, notify=notify,
-            tech_lead_timeout=args.timeout, **review_kwargs)
+            tech_lead_timeout=args.timeout,
+            archived_scope=archived_scope, **review_kwargs)
 
     if policy_origin == "discovered-in-repo" \
             and not args.verify_previous and not args.range:

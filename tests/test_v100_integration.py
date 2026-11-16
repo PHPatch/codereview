@@ -10,9 +10,13 @@ majors:
   counter (MAX_PROBE_ROUNDS), enforced and recorded, not an
   accident of the code's shape.
 - Archived-record exclusion (solution §5.4): committed
-  review-*/ output and gate-attempts.* ledgers never enter the
-  reviewed span; findings citing archived-only text classify
-  as archived-text and never reach adjudication.
+  review output and the attempts ledger, when the operator
+  designates their locations as the archived scope, never
+  enter the reviewed span; findings citing archived-only
+  text classify as archived-text and never reach
+  adjudication. (Scope narrowed to operator-designated
+  locations by fail-closed batch 1, A3 — name-based exclusion
+  anywhere hid arbitrary code from the gate.)
 - Evidence sidecars (solution §4 Q7): quotes, reasons and
   probe outputs are stored FULL-TEXT as content-addressed
   sidecars (evidence/<sha256>); the JSON keeps a display copy
@@ -269,7 +273,8 @@ class RecordingSeat:
 class ArchivedExclusionFlowTests(unittest.TestCase):
     """Solution §5.4: committed review records and the attempts
     ledger are excluded from the span, visibly, and findings
-    citing them classify as archived-text."""
+    citing them classify as archived-text — within the
+    operator-designated archived scope (A3)."""
 
     def run_archived(self):
         seats = [RecordingSeat(), RecordingSeat(), RecordingSeat()]
@@ -277,7 +282,8 @@ class ArchivedExclusionFlowTests(unittest.TestCase):
             ARCHIVED_PATCH,
             {"seatA": seats[0], "seatB": seats[1],
              "seatC": seats[2]},
-            seat_meta=META3, sleep=lambda *_a: None)
+            seat_meta=META3, sleep=lambda *_a: None,
+            archived_scope=["review-v096", "gate-attempts.jsonl"])
         return rec, seats
 
     def test_exclusions_listed_with_rules(self):
@@ -285,9 +291,9 @@ class ArchivedExclusionFlowTests(unittest.TestCase):
         self.assertEqual(
             rec["archived_exclusions"],
             [{"path": "review-v096/codereview-20261104-000000.json",
-              "rule": "review-*/"},
+              "rule": "archived-scope:review-v096"},
              {"path": "gate-attempts.jsonl",
-              "rule": "gate-attempts.*"}])
+              "rule": "archived-scope:gate-attempts.jsonl"}])
         self.assertEqual(rec["files"], ["app.py"])
         self.assertEqual(
             set(rec["coverage"]["files"]), {"app.py"})
@@ -313,7 +319,8 @@ class ArchivedExclusionFlowTests(unittest.TestCase):
         self.assertEqual(len(arch), 1)
         self.assertEqual(arch[0]["rule"], "eval-exec")
         self.assertEqual(arch[0]["archived_text"],
-                         {"rule": "review-*/", "basis": "path"})
+                         {"rule": "archived-scope:review-v096",
+                          "basis": "path"})
 
     def test_span_without_archives_records_no_exclusions(self):
         rec = review3(Seat(), Seat(), Seat())
@@ -329,16 +336,17 @@ class ArchivedTextClassifierTests(unittest.TestCase):
     KEPT_FILES = {"app.py"}
     KEPT_TEXT = "VALUE = compute_total(items)\n"
 
-    def classify(self, findings):
+    def classify(self, findings, scope=None):
         return core._split_archived_text(
-            findings, self.KEPT_FILES, self.KEPT_TEXT, self.ARCH)
+            findings, self.KEPT_FILES, self.KEPT_TEXT, self.ARCH,
+            scope)
 
     def test_path_basis(self):
         f = {"file": "gate-attempts.jsonl", "evidence_quote": "x"}
-        kept, arch = self.classify([f])
+        kept, arch = self.classify([f], scope=["gate-attempts.jsonl"])
         self.assertEqual(kept, [])
         self.assertEqual(arch[0]["archived_text"],
-                         {"rule": "gate-attempts.*",
+                         {"rule": "archived-scope:gate-attempts.jsonl",
                           "basis": "path"})
 
     def test_quote_basis_reraise_shape(self):

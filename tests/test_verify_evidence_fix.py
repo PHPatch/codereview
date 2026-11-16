@@ -165,7 +165,9 @@ class VerifyEvidenceVisibilityTests(unittest.TestCase):
         report = core.run_verification(
             patch, {"a": seat, "b": seat}, previous,
             "added the dedup guard in src/app.py",
-            max_patch_chars=20000)
+            max_patch_chars=20000,
+            archived_scope=["review-closing-r1", "review-v15",
+                            "review-closing-verify"])
         # Archived material never consumed the evidence window.
         self.assertTrue(all("ARCHIVED_FILLER" not in p
                             for p in prompts))

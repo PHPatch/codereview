@@ -131,7 +131,8 @@ def discover_agents_files(repo, changed_paths):
 
 def collect_agents_context(repo, patch,
                            per_file_cap=AGENTS_PER_FILE_CAP,
-                           total_cap=AGENTS_TOTAL_CAP):
+                           total_cap=AGENTS_TOTAL_CAP,
+                           archived_scope=None):
     """Collect the AGENTS.md context for a review of `patch`.
 
     Returns (payload, entries). `entries` is the ledger — one
@@ -165,7 +166,7 @@ def collect_agents_context(repo, patch,
                  "sent_chars": 0, "truncated": None,
                  "skipped": None, "rules_section": False}
         entries.append(entry)
-        if _archived_rule(rel):
+        if _archived_rule(rel, archived_scope):
             entry["skipped"] = "archived"
             continue
         full = os.path.realpath(

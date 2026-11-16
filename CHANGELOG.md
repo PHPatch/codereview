@@ -1,5 +1,63 @@
 # Changelog
 
+## Unreleased — fail-closed batch 1 (Duet fresh-eyes A1/A2/A3/A6/A9/C1)
+
+Six fail-open defects in the gate path, found by the external
+reviewer's fresh-eyes pass of 2026-11-14 and fixed as one batch
+(GitLab issues #16–#21). Each fix ships with a regression test
+adapted from the reviewer's repro (`tests/test_fail_closed_batch1.py`).
+
+- **Malformed reviewer replies no longer read as clean (A1).**
+  A seat reply that parses as JSON but is not a review —
+  findings as an object or a string, an empty object, an error
+  object (`{"error": …}`), findings under an `issues` key, or a
+  `changes_requested` verdict with no findings — was recorded as
+  a successful review with zero findings, and a strict run
+  passed. Such a reply is now a parse failure: the seat is
+  marked failed and the run degrades (strict: inconclusive),
+  never a clean pass. The same shape discipline applies to
+  verification replies.
+- **Severity aliases can no longer slip a blocker past the
+  gate (A2).** Normalization now strips whitespace and maps
+  aliases (`critical` → blocker, `High` → major, `"blocker "`
+  → blocker). A severity that names nothing known is a parse
+  error (the seat fails), never a silent downgrade to minor.
+- **The archived-record exclusion is scoped to
+  operator-designated locations (A3).** Previously ANY
+  top-level `review-*/`/`review_*/` directory and ANY
+  `gate-attempts.*` file, in any repository, was excluded from
+  the deterministic checks and from the reviewers' diff — a
+  hardcoded secret under `review_service/` passed strict.
+  Exclusion now applies only inside the run's own `--out`
+  directory and any locations named with the new repeatable
+  `--archived-dir` option (gate and loop commands); with no
+  scope designated, every path is reviewed like everything
+  else.
+- **Tech Lead dismissals on the binding path must meet the
+  dismissal grounding standard (A6).** A `sustain_refutation`
+  decision was accepted with any quote of 4+ characters that
+  appeared in the region. The deciding quote must now pass
+  the same check the v2 dismissal protocol uses — distinct
+  from the refuter's quote and relevant to the claim — or the
+  dismissal is invalid and the case escalates on the record.
+- **Verification can no longer pass work that never cleared
+  (A9).** `run_verification` refuses a previous report whose
+  gate was not BLOCKED (inconclusive refusal, no provider
+  calls, prior findings stay open on the record); the judged
+  prior set now also carries the previous report's `remaining`
+  and `unjudged` findings, so verify-of-verify loses nothing;
+  a round with unjudged prior blockers is inconclusive even
+  when other findings remain open; and `run_loop` chains and
+  tracks unjudged findings instead of dropping them — the
+  loop can no longer finish PASS while a finding it never
+  judged is still listed unresolved.
+- **Malformed finding shapes degrade instead of crashing
+  (C1).** `"findings": 5` raised a TypeError that killed the
+  run with no record; a finding line of `1e999` (JSON infinity)
+  raised OverflowError in normalization. The shape validation
+  above rejects the first as a seat parse failure, and the
+  numeric conversions now catch OverflowError.
+
 ## 0.13.3 — MCP policy-trust removal — 2026-11-10
 
 Closes the remaining item from the 0.13.2 audit line (item E,

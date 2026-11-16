@@ -157,7 +157,8 @@ def _range_target_ref(range_spec):
 
 def collect_file_context(repo, patch, range_spec=None, staged=False,
                          per_file_cap=FILE_CONTEXT_PER_FILE_CAP,
-                         total_cap=FILE_CONTEXT_TOTAL_CAP):
+                         total_cap=FILE_CONTEXT_TOTAL_CAP,
+                         archived_scope=None):
     """Post-change contents of the files a patch touches
     (acceptance D1).
 
@@ -207,7 +208,7 @@ def collect_file_context(repo, patch, range_spec=None, staged=False,
         if "--- /dev/null" in text:
             entry["skipped"] = "new_file"
             continue
-        if _archived_rule(name):
+        if _archived_rule(name, archived_scope):
             entry["skipped"] = "archived"
             continue
         try:
@@ -306,9 +307,8 @@ FIXTURE_POLICY_VERSIONS = (1,)
 
 # Archived-record exclusion (refutation-process solution §5.4,
 # owner-adopted): committed review output — the record
-# directories every run files (review-v15/, review-v096/,
-# review-step4-out/, ...) and the gate attempts ledger — is
-# GENERATED ARTIFACT, not source. Reviewing it re-raises the
+# directories every run files and the gate attempts ledger —
+# is GENERATED ARTIFACT, not source. Reviewing it re-raises the
 # very findings those records preserve (in the v0.9.6 review,
 # two disputed majors were the #6/#8 claims re-raised against
 # pre-fix lines quoted inside historical records), and every
@@ -322,30 +322,52 @@ FIXTURE_POLICY_VERSIONS = (1,)
 # archived sections — classifies as archived-text, preserved
 # in archived_text_findings, never blocking, never routed to
 # adjudication.
-ARCHIVED_RULE_REVIEW_DIR = "review-*/"
-ARCHIVED_RULE_LEDGER = "gate-attempts.*"
+#
+# Fail-closed batch 1 (A3): the exclusion applies ONLY inside
+# operator-designated record locations — the run's own --out
+# directory (the CLI threads it through) plus any directories
+# or files the operator names (--archived-dir). The pre-fix
+# rule matched by NAME anywhere in any repository (any
+# top-level review-*/ directory, any gate-attempts.* file),
+# which let arbitrary code hide from the deterministic checks
+# and the reviewers alike by folder name alone. With no scope
+# designated, nothing is excluded by name.
 
 
-def _archived_rule(path):
+def _archived_scope_entries(scope):
+    """Normalise the operator-designated record locations:
+    repo-relative POSIX paths, no leading/trailing slashes,
+    no root entry (an operator may not designate the whole
+    tree)."""
+    entries = []
+    for raw in scope or []:
+        entry = str(raw).strip().replace("\\", "/").strip("/")
+        if entry and entry != ".":
+            entries.append(entry)
+    return entries
+
+
+def _archived_rule(path, scope=None):
     """The archived-artifact rule matching `path`, or None.
-    Rules (repo-relative paths): a top-level directory whose
-    name starts with `review-` or `review_` (run record output),
-    and the `gate-attempts.*` ledger by basename anywhere."""
+    A path matches only when it IS, or sits under, one of the
+    operator-designated record locations in `scope` (see the
+    §5.4 note above); the rule names the scope entry that
+    matched. No scope — no exclusion."""
     if not path:
         return None
-    parts = [p for p in str(path).split("/") if p not in ("", ".")]
+    norm = str(path).replace("\\", "/")
+    parts = [p for p in norm.split("/") if p not in ("", ".")]
     if not parts:
         return None
-    if parts[-1].startswith("gate-attempts."):
-        return ARCHIVED_RULE_LEDGER
-    if len(parts) > 1 and (parts[0].startswith("review-")
-                           or parts[0].startswith("review_")):
-        return ARCHIVED_RULE_REVIEW_DIR
+    norm = "/".join(parts)
+    for entry in _archived_scope_entries(scope):
+        if norm == entry or norm.startswith(entry + "/"):
+            return f"archived-scope:{entry}"
     return None
 
 
 def _split_archived_text(findings, kept_files, kept_text,
-                         archived_sections):
+                         archived_sections, archived_scope=None):
     """Partition findings into (kept, archived_text_findings)
     against the sections excluded from the span. A finding is
     archived-text when its cited path is itself an archived
@@ -360,7 +382,7 @@ def _split_archived_text(findings, kept_files, kept_text,
     archived_blob = "\n".join(t for _n, t in archived_sections)
     kept, archived = [], []
     for f in findings:
-        rule = _archived_rule(f.get("file") or "")
+        rule = _archived_rule(f.get("file") or "", archived_scope)
         if rule:
             f["archived_text"] = {"rule": rule, "basis": "path"}
             archived.append(f)
@@ -1268,22 +1290,109 @@ def parse_json_object(text):
     return json.loads(t[start:end + 1])
 
 
+# Severity aliases (fail-closed batch 1, A2): models routinely
+# answer with the vocabulary of other review tools. Aliases map
+# to the canonical severities so a blocking finding cannot slip
+# past the gate on a spelling; anything else unknown is a parse
+# error (see _review_reply_error), never a silent minor.
+_SEVERITY_ALIASES = {"critical": "blocker", "high": "major"}
+
+
+def _normalize_severity(value):
+    """The canonical severity for a model-supplied value
+    (stripped, lowercased, alias-mapped), or None when the
+    value names no known severity."""
+    sev = str(value or "").strip().lower()
+    sev = _SEVERITY_ALIASES.get(sev, sev)
+    return sev if sev in _SEV_RANK else None
+
+
+def _reply_severity_error(items, where):
+    """The first unrecognised severity in a reply's finding
+    list, as an error string, or None. A finding that omits
+    severity is fine (normalization defaults it); a finding
+    that NAMES an unknown severity is a malformed reply."""
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            return f"{where}[{i}] is not an object"
+        sev = item.get("severity")
+        if sev not in (None, "") and _normalize_severity(sev) is None:
+            return (f"{where}[{i}] has unrecognised severity "
+                    f"{sev!r}")
+    return None
+
+
+def _review_reply_error(parsed):
+    """Shape check for one reviewer reply (fail-closed batch 1,
+    A1/C1). Returns an error string, or None when the reply is
+    a usable review. A reply that parses as JSON but is not a
+    review — findings as an object or string, an empty object,
+    an error object, findings under another key, a
+    changes_requested verdict with no findings — is a parse
+    failure: the seat failed, the run degrades, and the gate
+    never reads the change as clean on the strength of it."""
+    if not isinstance(parsed, dict):
+        return "review reply is not a JSON object"
+    if "findings" not in parsed:
+        if parsed.get("error"):
+            return ("review reply is an error object: "
+                    + str(parsed["error"])[:120])
+        return "review reply has no findings list"
+    findings = parsed["findings"]
+    if not isinstance(findings, list):
+        return "review reply findings is not a list"
+    err = _reply_severity_error(findings, "findings")
+    if err:
+        return "review reply " + err
+    verdict = str(parsed.get("verdict") or "").strip().lower()
+    if verdict == "changes_requested" and not findings:
+        return ("review reply verdict is changes_requested but "
+                "it lists no findings")
+    return None
+
+
+def _verification_reply_error(parsed):
+    """Shape check for one verification reply (fail-closed
+    batch 1, A1/C1 applied to the verify panel): the two lists
+    the round consumes must be lists of objects with known
+    severities when present — a scalar where a list belongs
+    crashed the round before this check existed."""
+    if not isinstance(parsed, dict):
+        return "verification reply is not a JSON object"
+    for key in ("resolutions", "new_findings"):
+        value = parsed.get(key)
+        if value is not None and not isinstance(value, list):
+            return f"verification reply {key} is not a list"
+    return _reply_severity_error(parsed.get("new_findings") or [],
+                                 "new_findings")
+
+
 def _normalize_finding(raw, source, lens=None):
     if not isinstance(raw, dict):
         return None
-    sev = str(raw.get("severity") or "minor").lower()
-    if sev not in _SEV_RANK:
+    sev_raw = raw.get("severity")
+    if sev_raw in (None, ""):
         sev = "minor"
+    else:
+        sev = _normalize_severity(sev_raw)
+        if sev is None:
+            # A named-but-unknown severity is a parse error
+            # (A2): the reply validators fail the seat on it
+            # before normalization is reached; a direct caller
+            # gets the same refusal instead of a silent minor.
+            raise ValueError(f"unrecognised severity {sev_raw!r}")
     title = str(raw.get("title") or "Untitled finding")[:160]
     file = str(raw.get("file") or "")
     category = str(raw.get("category") or "correctness").lower()
     try:
         line = int(raw.get("line")) if raw.get("line") else None
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError: a JSON number like 1e999 parses to
+        # float infinity and int() raises it (C1).
         line = None
     try:
         conf = float(raw.get("confidence"))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         conf = 0.5
     return {
         "id": fingerprint(file, category, title),
@@ -2030,6 +2139,29 @@ def _tech_lead_call(fn, finding, region, dispute, probe=None,
             out["error"] = (
                 "Tech Lead decision carried no quote that "
                 "appears in the cited region")
+        if out["decision"] == "sustain_refutation":
+            # Fail-closed batch 1 (A6): a dismissal on the
+            # binding path must meet the same grounding
+            # standard as the v2 dismissal protocol
+            # (_shadow_draw / acceptance): the deciding quote
+            # must be distinct from the refuter's quote and
+            # relevant to the claim. A bare quote that merely
+            # appears in the region — any 4 characters — is
+            # not a grounded dismissal; the case escalates.
+            quote_check = _dismissal_quote_check(
+                out["evidence_quote"],
+                (dispute or {}).get("evidence_quote"),
+                (finding.get("title") or "") + "\n"
+                + (finding.get("evidence") or ""))
+            out["deciding_quote_check"] = quote_check
+            if not quote_check["eligible"]:
+                out["decision"] = "invalid"
+                failed = [name for name in ("distinct", "relevant")
+                          if not quote_check[name]]
+                out["error"] = (
+                    "Tech Lead dismissal failed the dismissal "
+                    "grounding check (not "
+                    + ", not ".join(failed) + ")")
         return out
     if decision in ("needs_probe", "escalate"):
         out["decision"] = decision
@@ -4039,7 +4171,7 @@ def _terminal_from_error(exc):
 
 
 def _review_job(fn, prompt, sleep=None, max_attempts=None,
-                seat=None, progress=None):
+                seat=None, progress=None, validate=None):
     """One reviewer call, never raising: returns a result dict the
     caller folds into a reviewer report. Carries the job's
     wall-clock duration and prompt size (chars) so a persisted
@@ -4086,6 +4218,14 @@ def _review_job(fn, prompt, sleep=None, max_attempts=None,
             parsed = _call_with_retry(fn, prompt, sleep=sleep,
                                       tally=tally,
                                       max_attempts=max_attempts)
+            if validate is not None:
+                # Fail-closed batch 1 (A1/C1): a reply that
+                # parses but is not shaped like the answer the
+                # prompt asked for is a parse failure — the
+                # seat failed, exactly as if it had errored.
+                shape_error = validate(parsed)
+                if shape_error:
+                    raise ValueError(shape_error)
         except Exception as exc:  # noqa: BLE001 — recorded below
             state, cls, evidence = _terminal_from_error(exc)
             log.emit(state, cls, evidence, terminal=True)
@@ -4406,7 +4546,8 @@ def run_review(patch, providers, context="", test_results=None,
                policy=None, waivers=None, evidence=None,
                tech_lead_shadow=False, tech_lead_shadow_seat=None,
                gate_profile=None, file_context=None, progress=None,
-               agents_context=None, notify=None, builder_family=None):
+               agents_context=None, notify=None, builder_family=None,
+               archived_scope=None):
     """One review round. `providers` maps name -> callable(prompt)->str.
 
     Returns the report dict. Never raises for provider failures; they
@@ -4457,14 +4598,17 @@ def run_review(patch, providers, context="", test_results=None,
     1321bec43a24).
 
     Archived-record exclusion (refutation-process solution
-    §5.4): sections under a `review-*/` output directory or
-    named `gate-attempts.*` are generated artifacts — they are
-    excluded from the span before batching, listed in the
-    record's `archived_exclusions` with the rule that matched,
-    and findings citing them (or text preserved only inside
+    §5.4): sections inside operator-designated record
+    locations (`archived_scope` — the run's own --out
+    directory plus any --archived-dir entries the caller
+    names) are generated artifacts — they are excluded from
+    the span before batching, listed in the record's
+    `archived_exclusions` with the rule that matched, and
+    findings citing them (or text preserved only inside
     them) classify as archived-text in
     `archived_text_findings`: preserved, non-blocking, never
-    adjudicated.
+    adjudicated. With no scope designated, nothing is
+    excluded by name (fail-closed batch 1, A3).
 
     Role assignments (owner directive 2026-11-04): `lens_seats`
     pins a lens to a designated seat name ({lens: seat-name}) so
@@ -4705,7 +4849,7 @@ def run_review(patch, providers, context="", test_results=None,
     all_sections = split_patch_sections(clean_patch)
     sections, archived_sections, archived_exclusions = [], [], []
     for _name, _text in all_sections:
-        _rule = _archived_rule(_name)
+        _rule = _archived_rule(_name, archived_scope)
         if _rule:
             archived_sections.append((_name, _text))
             archived_exclusions.append(
@@ -4964,7 +5108,8 @@ def run_review(patch, providers, context="", test_results=None,
         with concurrent.futures.ThreadPoolExecutor(
                 max_workers=max(2, min(6, len(job_list) or 1))) as ex:
             futs = {ex.submit(_review_job, fn, prompt, sleep,
-                              seat=name, progress=progress):
+                              seat=name, progress=progress,
+                              validate=_review_reply_error):
                     idx
                     for idx, (name, lens, fn, prompt, bi, batch)
                     in enumerate(job_list)}
@@ -5033,7 +5178,9 @@ def run_review(patch, providers, context="", test_results=None,
                             fb = _review_job(fb_fn, prompt, sleep,
                                              max_attempts=remaining,
                                              seat=fb_name,
-                                             progress=progress)
+                                             progress=progress,
+                                             validate=
+                                             _review_reply_error)
                             fb_exc = fb["error"]
                             rec["duration_ms"] = (
                                 (res.get("duration_ms") or 0)
@@ -5398,7 +5545,8 @@ def run_review(patch, providers, context="", test_results=None,
     if archived_sections:
         merged, archived_text_findings = _split_archived_text(
             merged, {name for name, _t in sections},
-            "\n".join(t for _n, t in sections), archived_sections)
+            "\n".join(t for _n, t in sections), archived_sections,
+            archived_scope)
     fixture_findings = []
     if fixture_scope:
         # Fixture classification (clean-gate solution §3): the
@@ -5997,8 +6145,8 @@ def run_review(patch, providers, context="", test_results=None,
         reasons = reasons + [
             f"{len(archived_exclusions)} generated artifact "
             f"path(s) excluded from the reviewed span under "
-            f"the archived-record rule (review-*/, "
-            f"gate-attempts.*) — listed in "
+            f"the archived-record rule (operator-designated "
+            f"record locations only) — listed in "
             f"archived_exclusions; committed review records "
             f"are evidence, not source"]
     if archived_text_findings:
@@ -6533,11 +6681,89 @@ def _combine_resolution(cands, finding, batch_files):
     return cands[0][1]
 
 
+def _verification_prior(previous_report, blocking_sevs):
+    """The prior set a verification round must judge
+    (fail-closed batch 1, A9): the previous report's
+    blocking-severity findings PLUS every finding carried in
+    its `remaining` and `unjudged` lists. The pre-fix set read
+    `findings` only, so verifying a verification report
+    silently dropped the findings that round had left open or
+    unjudged — they were never judged again and the chain
+    could pass over them. Deduped by id; a remaining/unjudged
+    entry (which carries the fresher last_statuses) replaces
+    the original finding of the same id."""
+    out = []
+    pos = {}
+
+    def _add(f):
+        fid = f.get("id")
+        if fid and fid in pos:
+            out[pos[fid]] = f
+            return
+        if fid:
+            pos[fid] = len(out)
+        out.append(f)
+
+    for f in previous_report.get("findings") or []:
+        if f.get("severity") in blocking_sevs:
+            _add(f)
+    for key in ("remaining", "unjudged"):
+        for f in previous_report.get(key) or []:
+            _add(f)
+    return out
+
+
+def _verify_refusal_report(patch, sections, previous_report, prior,
+                           test_results, private, record_extra,
+                           notify, started):
+    """The report for a refused verification (fail-closed
+    batch 1, A9): the previous gate was not BLOCKED, so there
+    is no blocked work to verify — the round is inconclusive,
+    no provider is called, and the prior findings stay open
+    in `remaining`. Same record shape as a served round."""
+    gate_was = previous_report.get("gate")
+    reason = (
+        f"verification refused: the previous report's gate was "
+        f"{gate_was!r}, not 'blocked' — only work a gate "
+        f"actually blocked can be verified; the {len(prior)} "
+        f"prior blocking finding(s) remain open and unverified")
+    report = {
+        "schema": SCHEMA, "version": VERSION, "mode": "verify",
+        "created_at": _now_iso(),
+        "patch_sha256": hashlib.sha256(
+            patch.encode("utf-8")).hexdigest(),
+        "patch_chars": len(patch),
+        "_scope_files": [name for name, _text in sections],
+        "degraded_causes": [],
+        "previous_gate": gate_was,
+        "private": bool(private),
+        "test_results": test_results,
+        "cleared": [], "remaining": list(prior), "unjudged": [],
+        "reviewer_reports": [],
+        "findings": [],
+        "degraded": False, "truncated": False,
+        "gate": "inconclusive", "gate_reasons": [reason],
+    }
+    if record_extra:
+        report.update({k: v for k, v in record_extra.items()
+                       if v is not None})
+    record_schema_mod.finalize_record(
+        report,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        waivers=None)
+    _notify_verdict(
+        notify, report,
+        f"gate {report['gate']}: verification refused "
+        f"(previous gate {gate_was!r})")
+    return report
+
+
 def run_verification(patch, providers, previous_report, builder_response,
                      test_results=None, max_patch_chars=80000,
                      allow_major=False, strict=False, seat_meta=None,
                      fallbacks=None, sleep=None, record_extra=None,
-                     private=False, progress=None, notify=None):
+                     private=False, progress=None, notify=None,
+                     archived_scope=None):
     """Verification round: a prior blocker clears only when every
     successful reviewer marks it fixed/invalid AND the seat that
     raised it is among them (deterministic findings clear when the
@@ -6587,8 +6813,7 @@ def run_verification(patch, providers, previous_report, builder_response,
     # verification gate is a gate verdict too (see there).
     progress = _notify_progress(notify, progress)
     blocking_sevs = ("blocker",) if allow_major else BLOCKING_DEFAULT
-    prior = [f for f in previous_report.get("findings") or []
-             if f.get("severity") in blocking_sevs]
+    prior = _verification_prior(previous_report, blocking_sevs)
     clean_patch = redact_secrets(patch)
     # Archived-aware, sectioned prompt construction — parity with
     # the review path (§5.4): generated record artifacts are
@@ -6601,13 +6826,25 @@ def run_verification(patch, providers, previous_report, builder_response,
     all_sections = split_patch_sections(clean_patch)
     sections, archived_sections, archived_exclusions = [], [], []
     for _name, _text in all_sections:
-        _rule = _archived_rule(_name)
+        _rule = _archived_rule(_name, archived_scope)
         if _rule:
             archived_sections.append((_name, _text))
             archived_exclusions.append(
                 {"path": _name, "rule": _rule})
         else:
             sections.append((_name, _text))
+    if previous_report.get("gate") != "blocked":
+        # Fail-closed batch 1 (A9): verification exists to check
+        # work a gate BLOCKED. A previous report that passed or
+        # could not complete has no blocked work to clear —
+        # serving the round anyway laundered inconclusive work
+        # into a PASS ("all prior blockers cleared"). Refuse,
+        # on the record, without calling the panel.
+        return _verify_refusal_report(
+            patch, sections, previous_report, prior,
+            test_results=test_results, private=private,
+            record_extra=record_extra, notify=notify,
+            started=_record_started)
     batches, batch_files, truncated = _batch_sections_detailed(
         sections, max_patch_chars)
     kept_text = "\n".join(t for _n, t in sections)
@@ -6644,7 +6881,8 @@ def run_verification(patch, providers, previous_report, builder_response,
     # per job, exactly as it was per round before batching.
     def _verify_job(name, fn, prompt):
         res = _review_job(fn, prompt, sleep, seat=name,
-                          progress=progress)
+                          progress=progress,
+                          validate=_verification_reply_error)
         primary_state = res.get("seat_state")
         primary_hosting = res.get("hosting")
         out = {"slot": name, "ok": False, "parsed": None,
@@ -6681,7 +6919,9 @@ def run_verification(patch, providers, previous_report, builder_response,
                 else:
                     fb = _review_job(fb_fn, prompt, sleep,
                                      max_attempts=remaining,
-                                     seat=fb_name, progress=progress)
+                                     seat=fb_name, progress=progress,
+                                     validate=
+                                     _verification_reply_error)
                     out["attempts"] = (res["attempts"]
                                        + fb["attempts"])
                 if fb is not None and fb["ok"]:
@@ -6920,23 +7160,32 @@ def run_verification(patch, providers, previous_report, builder_response,
     # over the FULL patch — not a prefix slice.
     merged_new, archived_text_findings = _split_archived_text(
         merged_new, {n for n, _t in sections},
-        kept_text, archived_sections)
+        kept_text, archived_sections, archived_scope)
     all_open = remaining + [f for f in merged_new
                             if f["severity"] in blocking_sevs]
     quorum_ok = len(ok_recs) >= 2 or len(providers) <= 1
     if not any_success:
         gate, reasons = "inconclusive", ["no reviewer succeeded"]
-    elif all_open:
-        gate = "blocked"
-        reasons = [f"{len(all_open)} blocking item(s) still open"]
-        if truncated:
-            reasons.append("new diff was truncated")
     elif unjudged:
+        # Fail-closed batch 1 (A9): the unjudged check precedes
+        # the blocked/pass determination. A round in which a
+        # prior blocker was never judged is INCONCLUSIVE, not
+        # blocked — blocked asserts the work was judged and
+        # found wanting, and the loop chains on that assertion.
         gate, reasons = "inconclusive", [
             f"{len(unjudged)} prior blocker(s) not confirmed "
             "cleared: the seat that raised each was not among the "
             "successful reviewers (run a fresh review with the "
             "finder present, or record a human waiver)"]
+        if all_open:
+            reasons.append(
+                f"{len(all_open)} blocking item(s) also still "
+                "open")
+    elif all_open:
+        gate = "blocked"
+        reasons = [f"{len(all_open)} blocking item(s) still open"]
+        if truncated:
+            reasons.append("new diff was truncated")
     elif not quorum_ok:
         gate, reasons = "inconclusive", [
             f"verification quorum not met: {len(ok_recs)} of "
@@ -7986,7 +8235,7 @@ def _disposition_found(report_text, finding_id):
 def run_loop(get_patch, invoke_builder, providers, context="",
              test_runner=None, max_rounds=3, allow_major=False,
              strict=False, max_patch_chars=80000, on_round=None,
-             waived_ids=None):
+             waived_ids=None, archived_scope=None):
     """Drive the full workflow the product is named for:
 
     reviewers review the change -> the report is handed to the coding
@@ -8040,7 +8289,8 @@ def run_loop(get_patch, invoke_builder, providers, context="",
     report = run_review(patch, providers, context=context,
                         test_results=test_runner() if test_runner else [],
                         max_patch_chars=max_patch_chars,
-                        allow_major=allow_major, strict=strict)
+                        allow_major=allow_major, strict=strict,
+                        archived_scope=archived_scope)
     prev_stats = _patch_stats(patch)
     rounds.append({"round": 1, "kind": "review", "gate": report["gate"],
                    "report": report, "files": sorted(prev_stats)})
@@ -8108,7 +8358,8 @@ def run_loop(get_patch, invoke_builder, providers, context="",
             new_patch, providers, previous, response,
             test_results=test_runner() if test_runner else [],
             max_patch_chars=max_patch_chars,
-            allow_major=allow_major, strict=strict)
+            allow_major=allow_major, strict=strict,
+            archived_scope=archived_scope)
         stats = _patch_stats(new_patch)
         changes = {}
         for path in sorted(set(stats) | set(prev_stats)):
@@ -8123,6 +8374,7 @@ def run_loop(get_patch, invoke_builder, providers, context="",
                        "changes_vs_previous": changes})
         _track_cleared(report.get("cleared"))
         _track(report.get("remaining"), "unresolved")
+        _track(report.get("unjudged"), "unresolved")
         _track([f for f in report.get("findings") or []
                 if f.get("severity") in blocking_sevs], "unresolved")
         if on_round:
@@ -8148,10 +8400,16 @@ def run_loop(get_patch, invoke_builder, providers, context="",
             return _finish("inconclusive",
                            "verification could not complete — "
                            "reviewer infrastructure, not the builder")
-        # Chain: still-open + new blocking findings become the prior
-        # set for the next round.
+        # Chain: still-open + unjudged + new blocking findings
+        # become the prior set for the next round. The unjudged
+        # carry is fail-closed batch 1 (A9): a finding no seat
+        # judged must never silently leave the chain — the
+        # pre-fix chain carried remaining + new only, and the
+        # loop could finish PASS while finding_states still
+        # listed the dropped finding unresolved.
         previous = {"gate": report["gate"],
                     "findings": (report.get("remaining") or [])
+                    + (report.get("unjudged") or [])
                     + [f for f in report.get("findings") or []
                        if f.get("severity") in blocking_sevs]}
     return _finish(report["gate"],
@@ -8462,6 +8720,7 @@ def run_workflow(steps, providers, repo, out_dir, max_rounds=3,
             test_runner=_tests if step.get("test_commands") else None,
             max_rounds=max_rounds, strict=strict,
             waived_ids=waivers.get(sid) or [],
+            archived_scope=[out_rel] if out_rel else None,
             on_round=lambda n, rep, so=step_out: write_report(
                 rep, os.path.join(so, f"round-{n}")))
         rec["loop_final_gate"] = loop_result["final_gate"]

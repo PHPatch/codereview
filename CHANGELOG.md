@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.4 — MCP registry marker + link move — 2026-11-23
+
+Metadata-only release; no gate code changes.
+
+- PYPI-README now carries the MCP registry name marker
+  (`io.github.phpatch/codereview`) that the Official MCP
+  Registry uses to verify the listing against this package.
+- Project links (PyPI landing page and package metadata)
+  moved from the old GitLab mirror to the new source of
+  truth, https://github.com/PHPatch/codereview. The full
+  pre-redesign README is linked as docs/README-full.md.
+
 ## 0.13.3 — MCP policy-trust removal — 2026-11-10
 
 Closes the remaining item from the 0.13.2 audit line (item E,

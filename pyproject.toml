@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codereview-loop"
-version = "0.13.3"
+version = "0.13.4"
 description = "Multi-model code review loop: one agent builds, independent models review, a deterministic gate decides."
 readme = "PYPI-README.md"
 requires-python = ">=3.11"
@@ -25,9 +25,9 @@ codereview = "codereview.cli:console_main"
 reviewloop = "codereview.cli:console_main"
 
 [project.urls]
-Homepage = "https://gitlab.com/superstartelecom/codereview"
-Issues = "https://gitlab.com/superstartelecom/codereview/-/issues"
-Security = "https://gitlab.com/superstartelecom/codereview/-/blob/master/SECURITY.md"
+Homepage = "https://github.com/PHPatch/codereview"
+Issues = "https://github.com/PHPatch/codereview/issues"
+Security = "https://github.com/PHPatch/codereview/blob/main/SECURITY.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]

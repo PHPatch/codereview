@@ -1,5 +1,7 @@
 # codereview-loop
 
+<!-- mcp-name: io.github.phpatch/codereview -->
+
 **One agent builds. Independent models review. A deterministic gate decides.**
 
 CodeReview is a multi-model review gate for AI-written code. A panel of models from different providers reviews each change, cross-checks each other's findings, and a deterministic gate issues a recorded PASS / BLOCKED / INCONCLUSIVE verdict, so the model that wrote the code is never the only one that checked it. It ships as a command-line tool (`codereview`) and an MCP server, so your coding agents can submit their own work to the gate before it merges.
@@ -64,12 +66,12 @@ Feedback is opt-in. Nothing leaves your machine because of these features unless
 
 ## Links
 
-- Source and releases: https://gitlab.com/superstartelecom/codereview
-- Release notes: https://gitlab.com/superstartelecom/codereview/-/releases/v0.13.1
-- Issues: https://gitlab.com/superstartelecom/codereview/-/issues
-- Security policy: https://gitlab.com/superstartelecom/codereview/-/blob/master/SECURITY.md
-- Privacy notice: https://gitlab.com/superstartelecom/codereview/-/blob/master/PRIVACY.md
-- Full documentation: https://gitlab.com/superstartelecom/codereview/-/blob/master/README.md
+- Source and releases: https://github.com/PHPatch/codereview
+- Release notes: https://github.com/PHPatch/codereview/blob/main/CHANGELOG.md
+- Issues: https://github.com/PHPatch/codereview/issues
+- Security policy: https://github.com/PHPatch/codereview/blob/main/SECURITY.md
+- Privacy notice: https://github.com/PHPatch/codereview/blob/main/PRIVACY.md
+- Full documentation: https://github.com/PHPatch/codereview/blob/main/docs/README-full.md
 - Support: support@phpatch.com
 
 ## License

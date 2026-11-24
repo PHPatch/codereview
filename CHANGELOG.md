@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.5 - Registry namespace case fix - 2026-11-23
+
+Metadata-only release; no gate code changes.
+
+- MCP registry name marker now uses the canonical GitHub
+  account case (`io.github.PHPatch/codereview`); the
+  Official MCP Registry matches it case-sensitively.
+
 ## 0.13.4 — MCP registry marker + link move — 2026-11-23
 
 Metadata-only release; no gate code changes.

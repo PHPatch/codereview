@@ -1,6 +1,6 @@
 # codereview-loop
 
-<!-- mcp-name: io.github.phpatch/codereview -->
+<!-- mcp-name: io.github.PHPatch/codereview -->
 
 **One agent builds. Independent models review. A deterministic gate decides.**
 

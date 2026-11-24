@@ -7,12 +7,12 @@
     "url": "https://github.com/PHPatch/codereview",
     "source": "github"
   },
-  "version": "0.13.4",
+  "version": "0.13.5",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "codereview-loop",
-      "version": "0.13.4",
+      "version": "0.13.5",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"

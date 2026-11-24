@@ -72,7 +72,7 @@ codereview bench report --public
 
 Headline metric is the **escaped-defect rate**: defects the gate would have shipped.
 
-The default `strict` gate is deliberately unforgiving. In registered confirmation testing it caught every seeded defect (recall 1.00, 7 of 7) and blocked 94% of clean changes (32 of 34). That is the trade, stated plainly: strict is a high-recall gate for code you cannot afford to get wrong, with a documented waiver path. A `balanced` profile exists; an opt-in `corroborated` profile failed its registered confirmation and is marked dev-only. Numbers, intervals, and provenance: `bench/README.md`.
+The default `strict` gate is deliberately unforgiving. In registered confirmation testing it caught every seeded defect (recall 1.00, 7 of 7; Wilson 95% interval [0.646, 1.000], a small sample) at 0.583 merged blocking precision, **and it blocked 94% of clean changes (32 of 34; 95% interval [0.809, 0.984])**. The registered confirmation **failed** its clean-change threshold. (Record: `bench/generation-v2/RESULTS-2026-11-05.md`, attempt 1.) That is the trade, stated plainly: strict is a high-recall gate for code you cannot afford to get wrong, with a documented waiver path. A `balanced` profile exists; an opt-in `corroborated` profile failed its registered confirmation and is marked dev-only. Numbers, intervals, and provenance: `bench/README.md`.
 
 ## Gate profiles
 

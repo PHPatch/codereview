@@ -1,5 +1,7 @@
 # CodeReview
 
+[![PyPI](https://img.shields.io/pypi/v/codereview-loop)](https://pypi.org/project/codereview-loop/) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
+
 **One agent builds. Independent models review. A deterministic gate decides.**
 
 CodeReview is a review gate for AI-written code. A panel of models from different providers reviews every change, cross-checks each other's findings, and issues a recorded verdict: **PASS, BLOCKED, or INCONCLUSIVE**. The model that wrote the code is never the only one that checked it, and the builder can never approve its own work.

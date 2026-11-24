@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.phpatch/codereview",
+  "name": "io.github.PHPatch/codereview",
   "title": "CodeReview",
   "description": "Multi-model review gate for AI-written code: independent reviewers, one deterministic verdict.",
   "repository": {
@@ -14,10 +14,18 @@
       "identifier": "codereview-loop",
       "version": "0.13.4",
       "runtimeHint": "uvx",
-      "transport": { "type": "stdio" },
+      "transport": {
+        "type": "stdio"
+      },
       "packageArguments": [
-        { "type": "positional", "value": "mcp" },
-        { "type": "positional", "value": "serve" }
+        {
+          "type": "positional",
+          "value": "mcp"
+        },
+        {
+          "type": "positional",
+          "value": "serve"
+        }
       ],
       "environmentVariables": [
         {

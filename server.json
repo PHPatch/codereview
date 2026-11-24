@@ -1,0 +1,38 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.phpatch/codereview",
+  "title": "CodeReview",
+  "description": "Multi-model review gate for AI-written code: independent reviewers, one deterministic verdict.",
+  "repository": {
+    "url": "https://github.com/PHPatch/codereview",
+    "source": "github"
+  },
+  "version": "0.13.4",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "codereview-loop",
+      "version": "0.13.4",
+      "runtimeHint": "uvx",
+      "transport": { "type": "stdio" },
+      "packageArguments": [
+        { "type": "positional", "value": "mcp" },
+        { "type": "positional", "value": "serve" }
+      ],
+      "environmentVariables": [
+        {
+          "name": "OPENAI_API_KEY",
+          "description": "Provider API key. Bring any two providers (OpenAI, Gemini, Anthropic, DeepSeek) and assign models per role in `codereview setup`.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "GEMINI_API_KEY",
+          "description": "Provider API key. Bring any two providers (OpenAI, Gemini, Anthropic, DeepSeek) and assign models per role in `codereview setup`.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
